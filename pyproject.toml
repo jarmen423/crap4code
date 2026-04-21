@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crap4code"
+version = "0.1.0"
+description = "Unified multi-language CRAP analyzer CLI"
+readme = "README.md"
+requires-python = ">=3.10"
+
+[project.scripts]
+crap4code = "crap4code.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
