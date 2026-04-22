@@ -4,10 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "crap4code"
-version = "0.1.0"
-description = "Unified multi-language CRAP analyzer CLI"
+version = "0.2.0"
+description = "Multi-language CRAP analyzer for Python, JavaScript/TypeScript, and Rust"
 readme = "README.md"
 requires-python = ">=3.10"
+dependencies = [
+  "tree-sitter>=0.25.0",
+  "tree-sitter-javascript>=0.25.0",
+  "tree-sitter-typescript>=0.23.0",
+  "tree-sitter-rust>=0.24.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "coverage>=7.8",
+  "pytest>=9.0",
+]
 
 [project.scripts]
 crap4code = "crap4code.main:main"
@@ -17,3 +29,7 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

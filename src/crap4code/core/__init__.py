@@ -1,1 +1,1 @@
-"""Shared core for crap4code."""
+"""Shared core helpers for crap4code."""

@@ -1,27 +1,46 @@
+"""Git changed-file helpers for local and CI-style scans."""
+
 from __future__ import annotations
 
 from pathlib import Path
 import subprocess
 
 
-_GIT_COMMANDS = (
+_LOCAL_GIT_COMMANDS = (
     ("git", "diff", "--name-only", "--diff-filter=ACMRTUXB"),
     ("git", "diff", "--name-only", "--cached", "--diff-filter=ACMRTUXB"),
     ("git", "ls-files", "--others", "--exclude-standard"),
 )
 
 
-def get_changed_files() -> set[str]:
+def get_changed_files(root: Path, base_ref: str | None = None) -> set[str]:
+    """Return changed repo-relative paths using either local or CI semantics."""
+
     changed: set[str] = set()
-    for command in _GIT_COMMANDS:
+    commands = (
+        (("git", "diff", "--name-only", f"{base_ref}...HEAD", "--diff-filter=ACMRTUXB"),)
+        if base_ref
+        else _LOCAL_GIT_COMMANDS
+    )
+
+    for command in commands:
         try:
-            proc = subprocess.run(command, check=False, capture_output=True, text=True)
+            completed = subprocess.run(
+                command,
+                cwd=root,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
         except OSError:
             continue
-        if proc.returncode != 0:
+
+        if completed.returncode != 0:
             continue
-        for line in proc.stdout.splitlines():
-            line = line.strip()
+
+        for raw_line in completed.stdout.splitlines():
+            line = raw_line.strip()
             if line:
                 changed.add(Path(line).as_posix())
+
     return changed

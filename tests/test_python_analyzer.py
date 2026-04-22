@@ -1,13 +1,19 @@
+"""Python analyzer tests."""
+
+from __future__ import annotations
+
+from pathlib import Path
 import tempfile
 import textwrap
 import unittest
-from pathlib import Path
 
-from crap4code.analyzers.python import PythonAnalyzer
+from crap4code.languages.python.analyzer import PythonAnalyzer
 
 
 class PythonAnalyzerTests(unittest.TestCase):
-    def test_extracts_functions_and_complexity(self) -> None:
+    """Check Python extraction and complexity behavior."""
+
+    def test_extracts_functions_ranges_and_containers(self) -> None:
         source = textwrap.dedent(
             """
             class Example:
@@ -16,7 +22,7 @@ class PythonAnalyzerTests(unittest.TestCase):
                         return x
                     return 0
 
-            def helper(flag):
+            async def helper(flag):
                 if flag:
                     return 1
                 return 2
@@ -26,16 +32,18 @@ class PythonAnalyzerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             file_path = Path(tmpdir) / "sample.py"
             file_path.write_text(source, encoding="utf-8")
-
-            analyzer = PythonAnalyzer()
-            rows = analyzer.analyze([file_path])
+            rows = PythonAnalyzer().analyze(root=Path(tmpdir), files=[file_path])
 
         names = {row.function_name for row in rows}
         self.assertEqual(names, {"method", "helper"})
 
-        complexity = {row.function_name: row.complexity for row in rows}
-        self.assertGreaterEqual(complexity["method"], 3)
-        self.assertGreaterEqual(complexity["helper"], 2)
+        method = next(row for row in rows if row.function_name == "method")
+        helper = next(row for row in rows if row.function_name == "helper")
+
+        self.assertEqual(method.container, "Example")
+        self.assertGreaterEqual(method.complexity, 3)
+        self.assertGreater(method.end_line, method.start_line)
+        self.assertEqual(helper.container, "module")
 
 
 if __name__ == "__main__":

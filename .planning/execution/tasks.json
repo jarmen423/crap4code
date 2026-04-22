@@ -1,0 +1,48 @@
+{
+  "waves": [
+    {
+      "id": "wave-1-contract-lock",
+      "status": "done",
+      "tasks": [
+        "W1-1 planning scaffold",
+        "W1-2 CLI and output contract",
+        "W1-3 package layout lock"
+      ]
+    },
+    {
+      "id": "wave-2-shared-core",
+      "status": "done",
+      "tasks": [
+        "W2-1 config, coverage, reporting, recommendations",
+        "W2-2 CLI and command routing",
+        "W2-3 packaging and contributor baseline"
+      ]
+    },
+    {
+      "id": "wave-3-language-lanes",
+      "status": "done",
+      "tasks": [
+        "W3-PY Python analyzer",
+        "W3-JS JavaScript and TypeScript analyzer",
+        "W3-RS Rust analyzer"
+      ]
+    },
+    {
+      "id": "wave-4-integration-and-agent-surface",
+      "status": "done",
+      "tasks": [
+        "W4-1 integration flow",
+        "W4-2 JSON and table output",
+        "W4-3 docs and release surface"
+      ]
+    },
+    {
+      "id": "wave-5-verification-gate",
+      "status": "done",
+      "tasks": [
+        "W5-1 test and install verification",
+        "W5-2 final handoff"
+      ]
+    }
+  ]
+}

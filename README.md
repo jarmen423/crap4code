@@ -1,52 +1,119 @@
 # crap4code
 
-`crap4code` is a Python-hosted CLI scaffold for multi-language CRAP analysis inspired by `unclebob/crap4java`.
+`crap4code` is a Python-hosted CRAP analyzer for Python, JavaScript, TypeScript, and Rust.
 
-## MVP status
+It is designed for both humans and coding agents that need a verifiable way to:
 
-This initial PR establishes the shared architecture and a working CLI with analyzers for:
+- measure cyclomatic complexity
+- map coverage onto real function ranges
+- compute CRAP scores where coverage is trustworthy
+- rank risky functions
+- get deterministic recommendations about where to add tests or simplify code
 
-- Python (AST-based function discovery + complexity)
-- TypeScript (JS-family heuristic analyzer)
-- JavaScript (JS-family heuristic analyzer)
-- Rust (heuristic analyzer)
+The operator model intentionally leans toward `unclebob/crap4clj` and `unclebob/crap4java`:
 
-Coverage ingestion is intentionally optional/stubbed in this MVP. The architecture is ready for future coverage adapters.
+- keep the CLI simple
+- make coverage refresh explicit and auditable
+- treat missing coverage as indeterminate, not as fake precision
+- use threshold-based exits for CI and agent loops
 
-## Install / run locally
+## Install
 
 ```bash
-python -m pip install -e .
-crap4code scan --help
+python -m pip install -e .[dev]
 ```
 
-## Usage
+Repo path: `D:\code\crap4code`
+
+## Quick Start
+
+Write a sample config:
 
 ```bash
-# scan all languages under src/
+crap4code init
+```
+
+Scan with table output:
+
+```bash
 crap4code scan
-
-# scan a single language
 crap4code scan --lang python
-crap4code scan --lang typescript
-crap4code scan --lang javascript
-crap4code scan --lang rust
-
-# changed files only
-crap4code scan --lang python --changed
-
-# explicit files/directories
-crap4code scan --lang python src tests/sample.py
+crap4code scan --lang typescript --changed --base-ref origin/main
 ```
 
-## Exit codes
+Scan with machine-readable JSON:
+
+```bash
+crap4code scan --format json
+```
+
+Read an existing report without re-running coverage:
+
+```bash
+crap4code scan --report-only
+```
+
+## Config
+
+`crap4code` looks for a repo-local `.crap4code.toml` by default.
+
+Each language can define:
+
+- `paths`
+- `coverage_command`
+- `coverage_report`
+- `coverage_format`
+- `stale_artifacts`
+
+Coverage strategy:
+
+- if `coverage_command` is configured and `--report-only` is not used, the tool deletes stale artifacts, runs the command, then ingests the report
+- if no command runs but a report exists, the tool ingests the report
+- if no trustworthy report exists, coverage is reported as indeterminate and CRAP stays `N/A`
+
+## Output
+
+Table output includes:
+
+- language
+- file
+- container
+- function
+- line range
+- complexity
+- coverage
+- CRAP
+- risk
+
+JSON output includes:
+
+- `summary`
+- `functions`
+- `recommendations`
+- `run_metadata`
+- `warnings`
+
+## Exit Codes
 
 - `0` success
-- `1` invalid CLI usage
+- `1` invalid CLI usage or coverage command failure
 - `2` threshold exceeded
 
-## Current limitations
+## Supported Coverage Inputs
 
-- Coverage integration is not yet implemented (coverage/CRAP columns show `N/A` without coverage input)
-- JS/TS and Rust analyzers are intentionally heuristic in this first PR
-- Python analyzer is the strongest reference implementation in this MVP
+- Python: `coverage.py` XML
+- JavaScript / TypeScript: LCOV
+- Rust: LCOV
+
+## Development
+
+```bash
+python -m pip install -e .[dev]
+python -m pytest -q
+```
+
+## Notes
+
+- Python uses the standard library `ast`.
+- JavaScript, TypeScript, and Rust use Tree-sitter grammars.
+- Recommendations are deterministic rules, not LLM-generated advice.
