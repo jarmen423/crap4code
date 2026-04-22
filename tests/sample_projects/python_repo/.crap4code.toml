@@ -1,0 +1,19 @@
+[scan]
+default_paths = ["src"]
+threshold = 2.0
+format = "json"
+
+[python]
+enabled = true
+paths = ["src"]
+coverage_report = "coverage.xml"
+coverage_format = "coverage.py-xml"
+
+[javascript]
+enabled = false
+
+[typescript]
+enabled = false
+
+[rust]
+enabled = false

@@ -105,12 +105,31 @@ JSON output includes:
 - JavaScript / TypeScript: LCOV
 - Rust: LCOV
 
+## Sample Repos
+
+Checked-in sample repos live under `tests/sample_projects/` and are used for release-readiness verification:
+
+- `python_repo`
+- `javascript_repo`
+- `rust_repo`
+- `mixed_repo`
+
+These repos keep small source trees plus coverage artifacts so CI can verify report parsing and end-to-end CLI behavior without requiring every language toolchain to generate fresh coverage each run.
+
 ## Development
 
 ```bash
 python -m pip install -e .[dev]
 python -m pytest -q
+python -m build
+python -m twine check dist/*
 ```
+
+## Release Flow
+
+- normal pushes run CI
+- version tags like `v0.3.0` run the release workflow
+- the release workflow builds the package, runs `twine check`, uploads artifacts, and can publish to PyPI if the repo has `PYPI_API_TOKEN` configured
 
 ## Notes
 

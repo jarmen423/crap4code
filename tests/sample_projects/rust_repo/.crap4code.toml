@@ -1,0 +1,19 @@
+[scan]
+default_paths = ["src"]
+threshold = 8.0
+format = "json"
+
+[python]
+enabled = false
+
+[javascript]
+enabled = false
+
+[typescript]
+enabled = false
+
+[rust]
+enabled = true
+paths = ["src"]
+coverage_report = "coverage/lcov.info"
+coverage_format = "lcov"
