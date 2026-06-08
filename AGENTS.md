@@ -40,6 +40,8 @@ crap4code scan --format json
 crap4code scan --changed --base-ref origin/main
 ```
 
+See `docs/user-guide/README.md` (index) + siblings for detailed human/agent-oriented explanations of concepts, config, workflows, and troubleshooting.
+
 ## Important Project Rules
 
 - Missing coverage must stay `indeterminate`; never invent a CRAP score.

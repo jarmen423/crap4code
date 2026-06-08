@@ -9,6 +9,7 @@ Repo path: `D:\code\crap4code`
 - run `python -m build`
 - run `python -m twine check dist/*`
 - confirm `README.md`, `spec.md`, and `docs/contracts.md` still match the CLI behavior
+- confirm `docs/user-guide/README.md` (the guide index) has working hierarchical TOC + sibling links (to getting-started.md, configuration.md, concepts.md, usage.md, troubleshooting.md) and back-links to root `README.md` / `spec.md` / `docs/contracts.md` etc.
 - confirm checked-in sample repos under `tests/sample_projects/` still pass their release-readiness tests
 
 ## Tagging
@@ -51,3 +52,32 @@ Repo path: `D:\code\crap4code`
 - Untracked files (probes, mcps/, temps, user .crap4code.toml) left untouched per "handle untracked" guidance.
 - See CHANGELOG.md (root), full plan, review/*.patch for audit, docs/release-checklist.md .
 
+## YAML Workflow Parse Error - Diagnosis Note (added 2026-06-08 by workflow-validator subagent, parallel to fixer)
+- Root cause: phase3-ci (see review/land-phase3-ci-019ea891-21c8.patch and WINDOWS_AND_CROSS_PLATFORM_PLAN.md impl notes) added a complex inline verification under the new "minimal-install-verify" job:
+  - name: Verify python scan works + --lang rust fails gracefully (real minimal)
+    run: |
+      python - << 'PYEOF'
+import contextlib   <--- col 0 (outdented)
+... (50+ lines of python at col 0)
+PYEOF
+- The opener "python - << 'PYEOF'" line is indented (under run: | block scalar, ~10 spaces), but the payload + closer "PYEOF" are at column 0 in .github/workflows/ci.yml .
+- This violates YAML block scalar indentation rules (all continuation lines of | must be >= the indent of the block's first content line; lesser indent ends the scalar prematurely and makes following content invalid in the jobs/steps mapping/sequence).
+- Confirmed locally via:
+  - read_file + grep ^ patterns showing "import contextlib" and "PYEOF" with 0 leading ws while run:/python line have indent.
+  - The landed patch shows the + lines for code starting immediately after + (no ws).
+  - Remote raw on main matches.
+- Exact reproduction of yaml.safe_load failure (using PyYAML): ParserError / ScannerError around the "import" line or "while parsing a block mapping" / "did not find expected key" / "could not find expected ':' " (depending on exact pyyaml version; GH parser gives equivalent "Invalid workflow file: .github/workflows/ci.yml#L71" + "Unexpected value" or "A mapping was not expected").
+- Impact on ALL runs: GitHub parses/validates *every* .github/workflows/*.yml on *any* push (including tag pushes that only intend to trigger release.yml, and doc pushes to main). A single bad file (ci.yml) causes the entire check/run to fail with "YAML file errors", "workflow failed to start", conclusion=failure -- even for release runs. Confirmed by API: recent runs e.g. 27167220355 (release.yml), 27167220057 (ci.yml), 27167209207 etc. all conclusion=failure; their /jobs endpoints return 0 jobs (pre-dispatch parse failure, no jobs created).
+- release.yml itself: clean, no issues (standard steps, correct 2-space indents, valid if:, no heredoc, matrix n/a). See full read.
+- Other potential problems checked (none other fatal):
+  - if: conditions (e.g. if: matrix.os == 'windows-latest') correctly placed under step, good.
+  - matrix: and ${{ matrix.* }} refs correct in test job.
+  - New phase3-ci steps (case tests, cross-plat -k, windows E2 conditional, minimal job steps) have correct step-level indentation and structure; only the one heredoc payload inside | is broken.
+  - No secret if: issues (the one in release is common pattern).
+  - No tab chars or other obvious.
+- Minimal diff fix options (for the parallel fixer):
+  1. Preferred (teach-through-code, robust): extract the ~50 line verify to e.g. scripts/verify_minimal.py (with module docstring, structured comments per AGENTS), then in ci.yml: run: python scripts/verify_minimal.py  (simple, no yaml heredoc, committed+testable code).
+  2. In-place minimal: wrap the heredoc command with python -c + textwrap.dedent(stdin) shim + indent the entire payload+PYEOF lines in ci.yml to match the run block indent; update the opener to python -c "import sys,textwrap;exec(textwrap.dedent(sys.stdin.read()))" << 'PYEOF'  (then payload indented).
+  3. Avoid future: never use << 'XXX' inside yaml | for multi-line code blocks with top-level (0-indent) content; use committed scripts or exec(dedent('''...''')) with yaml-indented code.
+- The fix from parallel fixer subagent (whatever chosen) will make ci.yml valid yaml again; all future pushes (incl release tags) will then have clean workflow runs (assuming other content ok). This note added to checklist for audit + future release awareness.
+- See also: .github/workflows/ci.yml:69 (the run: |), raw on github, the phase3-ci patch, jobs=0 on the 27167... runs from GH API.

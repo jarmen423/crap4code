@@ -4,6 +4,28 @@ This user guide provides organized, durable explanations for using `crap4code`, 
 
 It is designed for both humans (returning after months away) and coding agents. All explanations are self-contained where possible, reference the actual codebase for "teach through code," and follow the project's structured documentation and scannability standards (hierarchical outlines with bullets).
 
+## Table of Contents
+
+This guide uses a small set of focused sibling pages. They follow a recommended reading order and provide **hierarchical navigation** (bullets + numbered steps inside) plus cross-links to each other and to root-level docs.
+
+Use the list below to jump; every page also contains "Next" / "See also" pointers back to siblings and to `README.md` (root), `spec.md`, `docs/contracts.md`, etc.
+
+1. **[Getting Started](./getting-started.md)** — first-time setup, typical 2-month-later reminder workflow.
+2. **[Configuration](./configuration.md)** — `.crap4code.toml` in depth (paths, coverage settings, shell model notes).
+3. **[Concepts](./concepts.md)** — CRAP formula, coverage reports vs. formats, paths meaning, "no matching source files", warnings, indeterminate coverage, two-phase flow, design ties.
+4. **[Usage](./usage.md)** — commands, CLI options (`--report-only`, `--changed`, `--format json`, etc.), cross-platform examples, basic + advanced workflows.
+5. **[Troubleshooting](./troubleshooting.md)** — common issues (no files found, coverage warnings, workspace layouts, case sensitivity, shell surprises) with why they happen and how the design handles them.
+
+**Back-links from this index (repo-root relative paths for the core references):**
+
+- `README.md` (root) — quick start, install, Windows notes, output overview, development commands.
+- `spec.md` — product goal, primary workflow, CLI contract, coverage contract, shared function fields, output contract.
+- `docs/contracts.md` — language support, coverage states (`measured` / `indeterminate`), risk levels, recommendation rules (deterministic order).
+- `docs/release-checklist.md` — pre-release verification, tagging, CI (reference only for release context).
+- `AGENTS.md` and source files (for "teach through code" details).
+
+(The detailed version of the above lives in the Scope section below; the list here serves as the primary hierarchical TOC for quick navigation.)
+
 ## Scope and Cross-References
 
 - **Do not duplicate** full project history, the entire Windows/cross-platform plan, or release processes here. Those live in:
@@ -24,13 +46,15 @@ It is designed for both humans (returning after months away) and coding agents. 
   - Operator model inspired by unclebob/crap4clj and crap4java: simple CLI, explicit/auditable coverage refresh, threshold-based exits for CI/agent loops.
   - Exit codes: `0` (success), `1` (CLI error or coverage command failure), `2` (threshold exceeded by any *measured* CRAP).
 
-## Guide Structure
+## Guide Structure (Table of Contents)
 
-- [getting-started.md](./getting-started.md) — first-time setup, typical 2-month-later reminder workflow.
-- [configuration.md](./configuration.md) — `.crap4code.toml` in depth (paths, coverage settings, shell model notes).
-- [concepts.md](./concepts.md) — CRAP formula, coverage reports vs. formats, paths meaning, "no matching source files", warnings, indeterminate coverage, two-phase flow, design ties.
-- [usage.md](./usage.md) — commands, CLI options (`--report-only`, `--changed`, `--format json`, etc.), cross-platform examples, basic + advanced workflows.
-- [troubleshooting.md](./troubleshooting.md) — common issues (no files found, coverage warnings, workspace layouts, case sensitivity, shell surprises) with why they happen and how the design handles them.
+See the hierarchical Table of Contents (with sibling links + back-links) near the top of this page. The list below uses absolute repo-relative paths for clarity from anywhere in the repo (Scope section expands the cross-references).
+
+- [docs/user-guide/getting-started.md](docs/user-guide/getting-started.md) — first-time setup, typical 2-month-later reminder workflow.
+- [docs/user-guide/configuration.md](docs/user-guide/configuration.md) — `.crap4code.toml` in depth (paths, coverage settings, shell model notes).
+- [docs/user-guide/concepts.md](docs/user-guide/concepts.md) — CRAP formula, coverage reports vs. formats, paths meaning, "no matching source files", warnings, indeterminate coverage, two-phase flow, design ties.
+- [docs/user-guide/usage.md](docs/user-guide/usage.md) — commands, CLI options (`--report-only`, `--changed`, `--format json`, etc.), cross-platform examples, basic + advanced workflows.
+- [docs/user-guide/troubleshooting.md](docs/user-guide/troubleshooting.md) — common issues (no files found, coverage warnings, workspace layouts, case sensitivity, shell surprises) with why they happen and how the design handles them.
 
 ## High-Level How It Works (Flow)
 
