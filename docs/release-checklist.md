@@ -38,3 +38,16 @@ Repo path: `D:\code\crap4code`
   - Use a fresh Windows checkout + python; repeat the minimal uninstall + registry + python-scan + rust-graceful checks above.
   - Confirm the E2 non-git --changed warning test runs: `python -m pytest -q -k "changed_flag_in_non_git_dir_emits_warning"`
 - The enhanced CI (ci.yml) now includes the matrix case/phase1 tests + explicit windows non-git step + dedicated minimal-install-verify job.
+
+## Release v0.4.0 (executed 2026-06-08)
+- Version bumped 0.3.0 -> 0.4.0 in pyproject.toml + src/crap4code/__init__.py
+- CHANGELOG.md created (comprehensive Keep a Changelog entry for Phases 0-3 Windows/cross-platform completion, drafted/prepared by subagent 019ea90e-57f6-7aa0-9a8c-d42541b111ac using plan + git history + patches + reads)
+- Pre-release local verification (per checklist): `python -m pip install -e .[dev]`, `python -m pytest -q` (21 passed), `python -m build`, `python -m twine check dist/*` (PASSED)
+- Committed as 0130258f0b865502ed2f980f38ccf3e9fe43ccfc "chore(release): bump to 0.4.0 and update changelog"
+- Annotated tag: `git tag -a v0.4.0 -m "Release v0.4.0 - Windows and cross-platform improvements per plan"`
+- Pushed: `git push origin main --tags` (SUCCESS; main 9a88f98..0130258 + new tag v0.4.0)
+- GitHub release workflow (`.github/workflows/release.yml`) triggered automatically by tag push (on: push tags v*). Job: build-release on ubuntu-latest (checkout, pip -e.[dev], pytest, build, twine check, softprops/action-gh-release with generate_release_notes + dist/* artifacts, conditional pypa publish if PYPI_API_TOKEN secret present).
+- Current PyPI: still 404 (no project yet; will be first publish via workflow if token configured in repo secrets).
+- Untracked files (probes, mcps/, temps, user .crap4code.toml) left untouched per "handle untracked" guidance.
+- See CHANGELOG.md (root), full plan, review/*.patch for audit, docs/release-checklist.md .
+
