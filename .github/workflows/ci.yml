@@ -65,63 +65,36 @@ jobs:
       - name: Verify only python language available via registry (lazy load)
         run: python -c "from crap4code.languages import get_language_registry; print(sorted(get_language_registry().keys()))"
 
+      - name: Make verify script executable (for direct invocation or clarity)
+        # The original inline heredoc was replaced by this extracted script (see next step).
+        # We still chmod for good hygiene / future direct ./ usage even though we invoke
+        # via the python interpreter below.
+        run: chmod +x scripts/verify_minimal_install.py
+
       - name: Verify python scan works + --lang rust fails gracefully (real minimal)
-        run: |
-          python - << 'PYEOF'
-import contextlib
-import io
-import os
-import tempfile
-from pathlib import Path
-from crap4code.cli import main
-from crap4code.languages import get_language_registry
-
-print("=== REGISTRY UNDER MINIMAL ===")
-langs = sorted(get_language_registry().keys())
-print(langs)
-assert langs == ["python"], langs
-print("REGISTRY_OK")
-
-print("=== GRACEFUL --lang rust FAIL (real missing, no traceback) ===")
-stderr = io.StringIO()
-with contextlib.redirect_stderr(stderr):
-    code = main(["scan", "--lang", "rust"])
-err = stderr.getvalue()
-print("code:", code)
-print("msg excerpt:", err[:200] if err else "(no stderr)")
-assert code == 1
-assert "Rust support requires" in err
-assert "tree-sitter-rust" in err
-print("GRACEFUL_RUST_OK")
-
-print("=== FULL PYTHON SCAN WORKS (actual .py file + config, lazy path) ===")
-with tempfile.TemporaryDirectory() as td:
-    root = Path(td)
-    (root / "sample.py").write_text(
-        "def foo(flag):\n    if flag:\n        return 1\n    return 0\n", encoding="utf-8"
-    )
-    # minimal config to enable python paths so scan actually processes the file
-    # (without config, defaults may yield 'No matching source files found' even if .py present)
-    (root / ".crap4code.toml").write_text(
-        "[scan]\ndefault_paths = [\".\"]\n\n[python]\nenabled = true\npaths = [\".\"]\n",
-        encoding="utf-8"
-    )
-    old = os.getcwd()
-    os.chdir(root)
-    try:
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            c2 = main(["scan", "--lang", "python", "--report-only"])
-        outv = out.getvalue()
-        print("scan_code:", c2)
-        print("scan_has_foo:", "foo" in outv)
-        assert c2 in (0, 2)
-        assert "foo" in outv, outv[:300]
-    finally:
-        os.chdir(old)
-print("PYTHON_SCAN_OK_UNDER_MINIMAL")
-print("MINIMAL_VERIFY_COMPLETE")
-PYEOF
+        # The verification logic was extracted to scripts/verify_minimal_install.py
+        # to eliminate the fragile inline heredoc (python - << 'PYEOF' ...) that
+        # produced YAML syntax errors ("while scanning a simple key" / "could not find
+        # expected ':'") because the heredoc payload lines were not indented inside
+        # the YAML literal block scalar (run: |).
+        #
+        # The script performs exactly the same checks (registry assert under minimal,
+        # graceful --lang rust failure with correct messages + exit 1, tempdir project
+        # with .py + .crap4code.toml, chdir + `main scan --lang python --report-only`,
+        # assert "foo" in output, and the original success marker prints).
+        #
+        # Comments explaining the purpose are preserved here and in the job header
+        # (minimal verify for lazy D1 + phase3-ci/Dev4). The script itself has a
+        # full module docstring + inline comments for the same reasons.
+        #
+        # This keeps the spirit of the original verification (and the manual steps
+        # documented in docs/release-checklist.md) while making the workflow YAML
+        # robust and easy to maintain.
+        #
+        # Invocation uses `python scripts/...` (portable, no shebang dependency).
+        # The prior steps in this job ensure the full install + grammar uninstalls
+        # have already happened, so the script runs against the true minimal state.
+        run: python scripts/verify_minimal_install.py
 
       - name: Run targeted tests safe under minimal (case + no_files + unavailable)
         run: python -m pytest -q -k "case_insensitive_fallback or no_files_found_returns_0 or unavailable_lang_returns_nonzero" --tb=no
