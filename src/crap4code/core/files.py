@@ -1,4 +1,15 @@
-"""File discovery helpers shared by all language adapters."""
+"""File discovery helpers shared by all language adapters.
+
+This module walks the filesystem for source files (respecting explicit paths
+vs. config default_paths and language extensions) and optionally intersects
+with git-changed files when the --changed / --base-ref flags are used.
+
+The intersection logic lives in core/git_changed.py. As of phase2-git-warn,
+get_changed_files (and therefore this function when changed_only=True) can
+return non-fatal warning messages. Those are returned alongside the file list
+so the CLI can feed them into the shared warnings collection used by reports
+and stderr output. See cli.py:_scan and the E2 section of the plan.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +28,7 @@ def discover_source_files(
     extensions: tuple[str, ...],
     changed_only: bool = False,
     base_ref: str | None = None,
-) -> list[Path]:
+) -> tuple[list[Path], list[str]]:
     """Discover candidate source files for a language adapter.
 
     Args:
@@ -28,6 +39,23 @@ def discover_source_files(
         changed_only: Whether to intersect discovered files with git-changed
             paths.
         base_ref: Optional base ref for CI-style changed-file diffs.
+
+    Returns:
+        A 2-tuple: (discovered_files, warnings).
+
+        - discovered_files: the list of Path objects after filtering.
+        - warnings: list of diagnostic strings (empty on the happy path).
+          When changed_only=True and git operations cannot determine a change
+          set (no git, not a repo, bad ref, etc.), this will contain a message
+          such as "git not available or not a repository — --changed flag had
+          no effect (git stderr: ...)" and the file list will be the empty
+          intersection. The warnings are later merged into the scan report
+          (see build_report + cli._scan) so they appear in both human table
+          output, --format json, and on stderr.
+
+    The return of warnings (instead of only the list) is the minimal API
+    surface change required to implement observable git failures per the plan
+    while keeping all other discovery behavior identical.
     """
 
     candidates: list[Path] = []
@@ -50,7 +78,8 @@ def discover_source_files(
     )
 
     if not changed_only:
-        return files
+        return files, []
 
-    changed = get_changed_files(root=root, base_ref=base_ref)
-    return [path for path in files if normalize_repo_path(path, root) in changed]
+    changed, git_warnings = get_changed_files(root=root, base_ref=base_ref)
+    filtered = [path for path in files if normalize_repo_path(path, root) in changed]
+    return filtered, git_warnings

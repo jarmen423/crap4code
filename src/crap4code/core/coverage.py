@@ -8,7 +8,7 @@ percentages.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import os
 import shutil
@@ -29,6 +29,9 @@ class CoverageDatabase:
     """
 
     line_hits_by_file: dict[str, dict[int, int]]
+    _fallback_warnings_emitted: set[tuple[str, str]] = field(
+        default_factory=set, repr=False, compare=False
+    )
 
     def coverage_for(
         self,
@@ -83,12 +86,15 @@ class CoverageDatabase:
                 if k.casefold() == folded:
                     lines = v
                     if warnings is not None:
-                        warnings.append(
-                            "Case-insensitive coverage path match used: "
-                            f"queried {file_path!r} against report key {k!r}. "
-                            "This is normal on Windows (and harmless on POSIX); "
-                            "coverage data was successfully mapped."
-                        )
+                        pair = (folded, k.casefold())
+                        if pair not in self._fallback_warnings_emitted:
+                            self._fallback_warnings_emitted.add(pair)
+                            warnings.append(
+                                "Case-insensitive coverage path match used: "
+                                f"queried {file_path!r} against report key {k!r}. "
+                                "This is normal on Windows (and harmless on POSIX); "
+                                "coverage data was successfully mapped."
+                            )
                     break
             if not lines:
                 return ("indeterminate", None)

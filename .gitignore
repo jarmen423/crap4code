@@ -7,3 +7,17 @@ coverage.xml
 *.egg-info/
 build/
 dist/
+
+# Agent / tool / experimental artifacts (not part of the project)
+qdrant_storage/
+.agentic-memory/
+.planning/
+.cursor/
+.claude/
+.grok/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*~

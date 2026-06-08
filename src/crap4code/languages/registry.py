@@ -82,11 +82,9 @@ def get_language_registry() -> dict[str, LanguageDefinition]:
         ),
     }
 
-    # JavaScript and TypeScript share one analyzer implementation.
-    # We import the class (succeeds even without grammars, thanks to the
-    # move of grammar imports into __init__), then attempt construction.
-    # If either the class import or the JS/TS grammar load fails, we omit
-    # both languages from the registry (they are provided by the same pkgs).
+    # JavaScript and TypeScript share one analyzer implementation class but
+    # load distinct grammars inside __init__. Register each language in its
+    # own try/except so a missing TS grammar does not block JS (and vice versa).
     try:
         from crap4code.languages.javascript.analyzer import JavaScriptFamilyAnalyzer
 
@@ -95,19 +93,21 @@ def get_language_registry() -> dict[str, LanguageDefinition]:
             extensions=(".js", ".jsx", ".mjs", ".cjs"),
             analyzer=JavaScriptFamilyAnalyzer(language="javascript"),
         )
+    except (ImportError, ModuleNotFoundError, AttributeError):
+        # Missing tree-sitter-javascript (or core tree-sitter). CLI surfaces
+        # a user-facing message only on explicit --lang javascript.
+        pass
+
+    try:
+        from crap4code.languages.javascript.analyzer import JavaScriptFamilyAnalyzer
+
         registry["typescript"] = LanguageDefinition(
             key="typescript",
             extensions=(".ts", ".tsx"),
             analyzer=JavaScriptFamilyAnalyzer(language="typescript"),
         )
-    except Exception:
-        # Grammar package(s) missing (tree-sitter-javascript and/or
-        # tree-sitter-typescript, or the core tree-sitter).  Skip
-        # registration for both.  Real case: ModuleNotFoundError.
-        # Test simulation (sys.modules['tree_sitter_javascript'] = None):
-        # may surface as AttributeError on use inside __init__; we catch
-        # broadly here so the crude blocker in verification commands works.
-        # CLI will surface a user-facing message only on explicit --lang.
+    except (ImportError, ModuleNotFoundError, AttributeError):
+        # Missing tree-sitter-typescript (or core tree-sitter).
         pass
 
     # Rust is independent of the JS/TS grammars.
@@ -119,7 +119,7 @@ def get_language_registry() -> dict[str, LanguageDefinition]:
             extensions=(".rs",),
             analyzer=RustAnalyzer(),
         )
-    except Exception:
+    except (ImportError, ModuleNotFoundError, AttributeError):
         # Missing tree-sitter-rust (or core tree-sitter).  Python + JS/TS
         # (if their grammars loaded) continue to work.
         pass

@@ -21,6 +21,10 @@ Provide a Python-hosted CLI that helps humans and coding agents reduce change ri
 
 ## CLI Contract
 
+Top-level options (apply before any subcommand, or with no subcommand):
+
+- `--version` / `-V` — print version from `crap4code.__version__` and exit (0)
+
 ### `crap4code init`
 
 - writes `.crap4code.toml`

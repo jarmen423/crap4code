@@ -143,7 +143,7 @@ def _scan(args: argparse.Namespace) -> int:
     others depend on whether their tree-sitter grammar package could be
     imported and instantiated). If the user supplies --lang for a language
     that is not currently available, we emit a clear actionable message
-    (matching the style in the plan) and return gracefully (exit 0) instead
+    (matching the style in the plan) and return exit code 1 instead
     of KeyError or raw ImportError. Unrequested missing languages are
     silently not offered (config loading and default selection only see what
     the registry advertised).
@@ -151,7 +151,9 @@ def _scan(args: argparse.Namespace) -> int:
 
     root = Path.cwd()
     registry = get_language_registry()
-    config = load_project_config(root=root, config_path=args.config, languages=list(registry))
+    config, config_warnings = load_project_config(
+        root=root, config_path=args.config, languages=list(registry)
+    )
 
     # Handle explicit --lang request for a language whose analyzer/grammar
     # could not be loaded (the core of the graceful degradation for D3).
@@ -164,24 +166,23 @@ def _scan(args: argparse.Namespace) -> int:
             "rust": "tree-sitter-rust",
         }
         pkg = pkg_map.get(args.lang, f"tree-sitter-{args.lang}")
-        if args.lang == "rust":
-            still = "Python and JS/TS will still work."
-        elif args.lang in ("javascript", "typescript"):
-            still = "Python and Rust will still work."
+        available = sorted(registry.keys())
+        if available:
+            still = f"These languages still work: {', '.join(available)}."
         else:
-            still = "Other languages may still work."
+            still = "No languages are currently available."
         print(
             f"{args.lang.capitalize()} support requires `pip install {pkg}`. {still}",
             file=sys.stderr,
         )
-        return 0
+        return 1
 
     selected_languages = [args.lang] if args.lang else [name for name, settings in config.languages.items() if settings.enabled]
     output_format = args.format or config.scan.format
     threshold = args.threshold if args.threshold is not None else config.scan.threshold
 
     all_rows: list[FunctionMetrics] = []
-    warnings: list[str] = []
+    warnings: list[str] = list(config_warnings)
     coverage_commands_run: list[str] = []
     scanned_files = 0
 

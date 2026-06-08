@@ -19,6 +19,7 @@ from typing import Any
 
 import tomllib
 
+from crap4code.core.thresholds import DEFAULT_THRESHOLD
 from crap4code.languages import get_language_registry
 
 
@@ -29,7 +30,7 @@ DEFAULT_CONFIG_NAME = ".crap4code.toml"
 class ScanSettings:
     default_paths: list[str] = field(default_factory=lambda: ["src"])
     format: str = "table"
-    threshold: float = 15.0
+    threshold: float = DEFAULT_THRESHOLD
 
 
 @dataclass(slots=True)
@@ -54,18 +55,44 @@ def _load_toml(path: Path) -> dict[str, Any]:
         return tomllib.load(f)
 
 
+def _parse_enabled_value(name: str, section: dict[str, Any], warnings: list[str]) -> bool:
+    """Parse the ``enabled`` flag with strict boolean validation.
+
+    Non-boolean values (including the string ``"false"``) must not be coerced
+    via ``bool()`` because that would incorrectly enable the language.
+    """
+
+    if "enabled" not in section:
+        return True
+
+    value = section["enabled"]
+    if isinstance(value, bool):
+        return value
+
+    warnings.append(
+        f"Invalid enabled value in [{name}] section: {value!r} (expected boolean); "
+        "treating as disabled."
+    )
+    return False
+
+
 def load_project_config(
     root: Path,
     config_path: str | None,
     languages: list[str] | None = None,
-) -> ProjectConfig:
+) -> tuple[ProjectConfig, list[str]]:
     """Load (or synthesize) the effective project config.
 
-    If no config file is found or loadable, a default config is synthesized
-    from the languages currently advertised by the registry. This keeps the
-    tool usable out-of-the-box while still respecting a repo-local file as
-    the single source of truth when present.
+    Returns a tuple of ``(config, warnings)``. Warnings cover malformed config
+    files and invalid per-language values that were corrected to safe defaults.
+
+    If no config file is found, a default config is synthesized from the
+    languages currently advertised by the registry. If a config file exists but
+    cannot be parsed, defaults are used and a warning is returned so the CLI can
+    surface the problem instead of silently ignoring the file.
     """
+    warnings: list[str] = []
+
     if languages is None:
         languages = list(get_language_registry().keys())
 
@@ -84,10 +111,10 @@ def load_project_config(
                 raw = _load_toml(cand)
                 used_path = cand
                 break
-            except Exception:
-                # Malformed config: treat as absent so we fall back to defaults
-                # (the caller/CLI can decide to surface or fail later).
-                pass
+            except Exception as exc:
+                warnings.append(
+                    f"Config file {cand} exists but could not be parsed ({exc}); using defaults."
+                )
 
     scan = ScanSettings()
     lang_settings: dict[str, LanguageSettings] = {}
@@ -103,8 +130,10 @@ def load_project_config(
 
         for lang in languages:
             section = raw.get(lang, {}) or {}
+            if section:
+                _validate_language_section(lang, section)
             ls = LanguageSettings(
-                enabled=bool(section.get("enabled", True)),
+                enabled=_parse_enabled_value(lang, section, warnings),
                 paths=list(section.get("paths", [])) if section.get("paths") is not None else None,
                 coverage_command=section.get("coverage_command"),
                 coverage_report=section.get("coverage_report"),
@@ -123,7 +152,7 @@ def load_project_config(
     for lang in languages:
         lang_settings.setdefault(lang, LanguageSettings())
 
-    return ProjectConfig(scan=scan, languages=lang_settings, config_path=used_path)
+    return ProjectConfig(scan=scan, languages=lang_settings, config_path=used_path), warnings
 
 
 def sample_config_text() -> str:
@@ -150,7 +179,7 @@ def sample_config_text() -> str:
       mutating coverage state.
     """
 
-    return """# Repo-local configuration for crap4code.
+    return f"""# Repo-local configuration for crap4code.
 # Keep commands and paths explicit so both humans and coding agents can verify
 # exactly how coverage is generated for each language.
 #
@@ -193,7 +222,7 @@ def sample_config_text() -> str:
 [scan]
 default_paths = ["src"]
 format = "table"
-threshold = 15.0
+threshold = {DEFAULT_THRESHOLD}
 
 [python]
 enabled = true

@@ -458,3 +458,18 @@ All new Windows/cross-platform behaviors (lazy load, case match with warning, cl
 
 See also the patches in review/ and the worktree paths above for original subagent diffs.
 
+
+**Cleanup (2026-06-08, final-status / docs subagent)**:
+- Confirmed git: on branch `merge/phase0-1-land-and-verify` at coordinator tip commit `8ff36f5` (the land+reconcile commit described above).
+- Cleaned up the 4 temp subagent worktree directories: `C:\Users\jfrie\AppData\Local\Temp\grok-subagent-worktrees\*` (all 4 UUID dirs removed via safe `Remove-Item -Recurse -Force`). Parent temp dir left empty (0 items); **zero files or dirs touched/deleted in the main D:\code\crap4code tree**.
+- Central todo list (via todo_write tool): updated so that **only `phase3-ci` and `phase3-dx` remain pending**; all Phase 0/1/phase2 items + final-verif-cleanup marked completed.
+- Left the workspace on the merge branch (did not switch; per the "optionally" instruction — documented here instead).
+- **How to consume the work (branch or merge to main)**: When ready, `git checkout main; git merge merge/phase0-1-land-and-verify` (fast-forward or merge commit) or cherry-pick the needed commits / review patches. The merge branch contains all the Phase 0/1/phase2 landed code changes (from subagents + main) + the `review/*.patch` audit files (land-wt1-..., land-wt3-..., land-wt4-...) .
+- Final high-level verifications (this session):
+  - `python -m pytest -q` → 20 passed (green).
+  - `python -m crap4code --version` → `crap4code 0.3.0`.
+  - Quick `crap4code init --force` (isolated $tmp dir + PYTHONPATH=src) succeeded; generated sample `.crap4code.toml` contains the enriched Doc1 "COVERAGE COMMAND SHELL MODEL" section (explicit mentions of `cmd.exe`, `ComSpec`, platform shell reality, pwsh/cmd guidance).
+  - `ls review/` (Get-ChildItem) confirmed the 3 subagent audit patches present.
+- Note on docs subagent role (this reminder): contributed the sample comments + README Windows section + plan update (now included in the merge commit).
+
+All Phase 0/1/phase2 complete and landed on `merge/phase0-1-land-and-verify`. Remaining are only the lower-priority phase3 items (ci, dx). Temp dirs cleaned.
