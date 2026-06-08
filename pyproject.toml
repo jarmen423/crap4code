@@ -55,5 +55,24 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.pytest.ini_options]
+# pythonpath helps pytest's own collection and import machinery for this src-layout
+# project (see package-dir + packages.find above). It is kept for compatibility
+# with direct pytest invocation, IDE runners, and older collection paths.
+#
+# However, real-world experience on Windows (pwsh, cmd, and even bash under Git for
+# Windows) showed that relying *only* on this + editable installs was fragile for
+# contributors (see Issue Dev1 in WINDOWS_AND_CROSS_PLATFORM_PLAN.md and the
+# detailed explanation + guard in tests/conftest.py).
+#
+# The tests/conftest.py guard (stdlib only) does a *conditional* prepend of src/
+# *only* when `import crap4code` fails at conftest load time. This makes both of
+# the following "just work" from repo root on any shell, with or without a prior
+# editable install:
+#   python -m pip install -e .[dev] && python -m pytest -q
+#   python -m pytest -q          # even on a fresh clone, before any pip step
+#
+# The guard is defensive and has zero effect on an installed package or on
+# production `crap4code` runs. It coexists peacefully with the pythonpath entry
+# here (the first successful mechanism wins).
 pythonpath = ["src"]
 testpaths = ["tests"]

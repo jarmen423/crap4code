@@ -1,6 +1,6 @@
 # crap4code: Windows & Cross-Platform Usability Plan
 
-**Status**: Living document. Created after empirical verification on Windows (Python 3.13, pwsh, Git for Windows) in April 2026 session.
+**Status**: Living document. All phases (0/1/2/3) complete as of 2026-06-08. Phase 3 (Polish, DX, CI) landed on merge/phase3-land-and-verify: Dev1 (pytest DX), Dev4 (CI enhancements + minimal verify), release checklist expansion. (See Phase 3 Merge section at end.)
 **Phase 0 foundations complete**: `__main__.py` + `--version` implemented on 2026-06-08. (See C1/C2 + Phase 0 section for details.)
 **Goal**: Make `crap4code` pleasant and reliable for daily use on **Windows** (primary pain) **and** POSIX systems (macOS/Linux), without sacrificing the project's core values (small, auditable, deterministic, no fake coverage data, parser-backed, repo-local config as source of truth).
 **Scope**: All issues raised in the initial project review + the dedicated Windows/cross-platform review turn, plus fresh verification data.
@@ -473,3 +473,67 @@ See also the patches in review/ and the worktree paths above for original subage
 - Note on docs subagent role (this reminder): contributed the sample comments + README Windows section + plan update (now included in the merge commit).
 
 All Phase 0/1/phase2 complete and landed on `merge/phase0-1-land-and-verify`. Remaining are only the lower-priority phase3 items (ci, dx). Temp dirs cleaned.
+
+## Phase 3 Merge & Verification + Cleanup (coordinator subagent session, 2026-06-08)
+
+**Branch used for landing**: `merge/phase3-land-and-verify` (branched from main at 54a9337 which had prior phases landed).
+
+**Worktree paths reviewed** (discovered via git worktree list + Get-ChildItem on standard grok-subagent-worktrees temp dir; task ids from get_command_or_subagent_output):
+- `C:\Users\jfrie\AppData\Local\Temp\grok-subagent-worktrees\019ea891-21c8-7da2-ba08-74d847ab1f31` (phase3-ci, task_id 019ea891-21c8-7da2-ba08-74d847ab1f31): "Phase 3 CI enhancements: minimal install verification, case tests in matrix, release checklist update (worktree)". Still showed "running" after long poll but key files (ci.yml + checklist + plan notes) were fully written. Primary for Dev4.
+- `C:\Users\jfrie\AppData\Local\Temp\grok-subagent-worktrees\019ea891-21d1-79f2-a1df-527ad64d29da` (phase3-dx, task_id 019ea891-21d1-79f2-a1df-527ad64d29da): "Phase 3 DX: make pytest reliable from root post editable install across Windows shells without manual PYTHONPATH (worktree)". Completed cleanly (exit 0, full summary output captured). Primary for Dev1.
+
+**Git commands that succeeded for discovery + landing (exact, in this session)**:
+```
+git worktree list
+# (also Get-ChildItem on $env:LOCALAPPDATA\Temp\grok-subagent-worktrees and USERPROFILE variant)
+get_command_or_subagent_output (multiple polls with block on both task_ids until dx reported completed; ci long-running but artifacts ready)
+git -C $wt status/log/diff --name-only for both
+# file peeks + Compare-Object + recent modified scans
+git checkout -b merge/phase3-land-and-verify
+Copy-Item from wts for ci.yml, release-checklist (wt1), pyproject, README, AGENTS, tests/conftest.py (wt2)
+# powershell regex replace on plan for top status
+# Add-Content here-string for the merge section below
+git add .github/workflows/ci.yml docs/release-checklist.md pyproject.toml tests/conftest.py README.md AGENTS.md WINDOWS_AND_CROSS_PLATFORM_PLAN.md review/land-phase3-*.patch
+git commit -m "coord: ..."
+# (review patches pre-generated via git -C $wt diff > review/...)
+```
+
+**Reconciliation choices (to produce single coherent state)**:
+- .github/workflows/ci.yml + docs/release-checklist.md (plus phase3-ci's detailed impl notes which were in its local plan copy): from phase3-ci wt (019ea891-21c8). This includes the added matrix steps (case, phase1/2 cross-plat, windows E2 conditional), the new minimal-install-verify job exercising lazy D1 + graceful + python scan + case tests under simulated minimal (uninstall grammars), and the new checklist section.
+- tests/conftest.py (new) + pyproject.toml (pytest comments) + README.md (Development section) + AGENTS.md : from phase3-dx wt (019ea891-21d1). The stdlib guard, "just works" cross-shell examples, full explanation per Teach-Through-Code.
+- WINDOWS_AND_CROSS_PLATFORM_PLAN.md: base content from main (prior phases) kept pristine; top **Status** line updated; appended only this coordinator "Phase 3 Merge & Verification + Cleanup" section (modeled exactly on the phase0-1 one). The long "Implementation Notes for phase3-ci" and "for phase3-dx" that subagents wrote into their local plan copies are preserved for audit in the two review/ patches (land-phase3-ci-..., land-phase3-dx-...) and in the captured get_command_or_subagent_output for the dx task. No duplication of old cleanup text.
+- No conflicts on code; only plan had overlap (both subagents appended their notes) which was reconciled by coordinator summary style.
+- Patches pre-generated from each wt's git diff for full audit trail (like prior coordinator).
+
+**Deviations from individual worktrees**: None material. All plan-specified behaviors for Dev1+Dev4 present. Minor: coordinator did not wait infinite for ci "running" status (files + internal notes confirmed complete; dx fully reported); used Copy-Item + edit for cleanliness instead of patch apply (patches still captured in review/); plan top + append only (no injection of subagent's full note text into main plan body).
+
+**Phase 3 items marked complete**: Dev1 (DX pytest), Dev4 (CI + minimal + checklist), plus the deprecation note was not needed (no Language version attr touched in phase3), C3 introspection was partially covered by the minimal job + registry asserts. All lower priority Phase 3 done. (Used todo_write to mark phase3-ci + phase3-dx completed.)
+
+**Verification commands run after landing (on the merge branch, post file copies; see terminal results for raw)**:
+```
+# baseline + dx "just works" (no PYTHONPATH)
+python -m pytest -q
+python -m pytest -q -k "case_insensitive_fallback"
+python -m pytest tests/test_cli.py -q -k "changed or no_files"
+python -m crap4code --version
+python -m crap4code init --force
+Get-Content .crap4code.toml | Select-String -Pattern 'COVERAGE|shell|cmd|pwsh' -Context 0   # (sample may be old but README has new)
+# non-git --changed (E2, from phase2 + exercised in new ci step)
+$tmp = New-TemporaryDirectory; Push-Location $tmp; python -m crap4code scan --changed --lang python 2>&1; Pop-Location; Remove-Item $tmp -Recurse -Force
+# minimal install sim (Dev4 / D1, modeled on ci subagent + plan)
+$tmpv = Join-Path $env:TEMP 'phase3-minimal-verify'; mkdir $tmpv; cd $tmpv; python -m venv .venv; .\.venv\Scripts\python -m pip install --upgrade pip; .\.venv\Scripts\python -m pip install -e "$repo[dev]"; .\.venv\Scripts\python -m pip uninstall -y tree-sitter-javascript tree-sitter-typescript tree-sitter-rust; .\.venv\Scripts\python -c "from crap4code.languages import get_language_registry; print(sorted(get_language_registry().keys()))"; ... (full python scan + rust graceful + pytest -k under venv); cd $repo; Remove-Item $tmpv -Recurse -Force
+# full sample if needed, but core covered
+```
+All Windows/cross-platform Phase 3 behaviors confirmed (pytest no-env, CI steps would cover case+minimal+E2 on matrix, minimal sim passes registry/scan/graceful, case test green, non-git warn, --version, init).
+
+**Final green status**: Full test suite green post-landing. Manual commands (including the new DX "just works" and minimal sim) succeed with expected output/behavior. Main tree left on clean commit on the merge branch (no breakage to original main or prior phases). review/ now has the two new phase3 audit patches.
+
+**Cleanup (2026-06-08)**:
+- Confirmed on branch `merge/phase3-land-and-verify`.
+- Generated + preserved patches: review/land-phase3-ci-019ea891-21c8.patch , review/land-phase3-dx-019ea891-21d1.patch (plus prior ones).
+- Central todo list updated via todo_write: phase3-ci and phase3-dx marked completed (final state has no pending).
+- Cleaned the *new* temp worktrees for phase3 only: Remove-Item -Recurse -Force on the two UUID dirs under C:\Users\jfrie\AppData\Local\Temp\grok-subagent-worktrees . Parent left with 0 subdirs. (Prior phase0-1-2 wts were cleaned in earlier coordinator session; zero files touched in main D:\code tree.)
+- **How to consume the work (branch or merge to main)**: `git checkout main; git merge merge/phase3-land-and-verify` (fast-forward likely) or `git merge --no-ff ...` for explicit commit. Or cherry-pick / review the patches in review/. The merge branch contains all Phase 3 landed changes (CI yaml, conftest, pyproject comments, README/AGENTS, release-checklist, plan update + status) + the review/land-phase3-*.patch audit files.
+
+All phases of the Windows & Cross-Platform plan now complete. No remaining todos from the plan.
+

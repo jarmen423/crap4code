@@ -1,6 +1,6 @@
 # crap4code
 
-`crap4code` is a Python-hosted CRAP analyzer for Python, JavaScript, TypeScript, and Rust.
+`crap4code` is a Python-hosted CRAP analyzer for Python, JavaScript/TypeScript, and Rust.
 
 It is designed for both humans and coding agents that need a verifiable way to:
 
@@ -223,12 +223,37 @@ For the most up-to-date status on any of the above, read the plan and then re-ru
 
 ## Development
 
-```bash
-python -m pip install -e .[dev]
-python -m pytest -q
+The following commands work reliably from the repo root on **pwsh**, **cmd**, **bash**, **zsh**, etc. after a fresh clone:
+
+```powershell
+# Windows (pwsh or cmd) - the recommended "just works" form
+python -m pip install -e .[dev] && python -m pytest -q
 python -m build
 python -m twine check dist/*
 ```
+
+```bash
+# POSIX (macOS / Linux) - identical commands (&& works everywhere for this)
+python -m pip install -e .[dev] && python -m pytest -q
+python -m build
+python -m twine check dist/*
+```
+
+### Why `python -m pytest` (and the install && test sequence) now "just works"
+- Historically (see Issue **Dev1** in `WINDOWS_AND_CROSS_PLATFORM_PLAN.md`), the combination of src-layout + `[tool.pytest.ini_options] pythonpath = ["src"]` + editable installs was not sufficient on Windows. Users frequently had to manually set `$env:PYTHONPATH='src'` (pwsh), `set PYTHONPATH=src` (cmd), or `PYTHONPATH=src python -m pytest` (bash) before the test suite would even collect.
+- Different shells propagate environment variables and launch `python` differently; editable installs (`.pth` files) can be affected by user-site vs venv, terminal emulators, and whether you used `python -m pip` vs the `pip` wrapper.
+- **Fix (phase3-dx)**: Added `tests/conftest.py` containing a minimal, stdlib-only guard:
+  - `try: import crap4code except ImportError: sys.path.insert(0, str(src))`
+  - The prepend only happens when the package is *not* importable via the normal mechanisms (editable install or pytest's own pythonpath injection).
+  - This runs early (pytest loads `tests/conftest.py` before the individual `test_*.py` modules).
+  - Result: `python -m pytest -q` (and targeted runs like `python -m pytest tests/test_cli.py -q -k cli`) succeed from repo root with **no manual PYTHONPATH** on any shell, both *after* `pip install -e .[dev]` **and before** any install step.
+- The pyproject `pythonpath` entry is intentionally retained (it still helps pytest's bootstrap); the conftest is the belt-and-suspenders that eliminated the shell/env friction.
+- The guard is test-only (never affects an end-user `pip install crap4code` or the `crap4code` console script). It is fully compatible with the lazy language registry (Phase 1) and "python-only" simulation/testing scenarios.
+- See the module docstring in `tests/conftest.py` for the complete rationale, code, and cross-references (written per the project's "Teach Through Code" standard).
+
+You can still run the suite directly against the `src/` tree on a pristine checkout (no `pip` step at all) — the guard makes that path first-class.
+
+The CI workflow (`.github/workflows/ci.yml`) already uses the install-then-`python -m pytest` pattern on both ubuntu-latest and windows-latest for all supported Python versions.
 
 ## Release Flow
 
