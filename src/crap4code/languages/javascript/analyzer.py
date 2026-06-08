@@ -1,12 +1,21 @@
-"""Tree-sitter based JavaScript and TypeScript analyzer."""
+"""Tree-sitter based JavaScript and TypeScript analyzer.
+
+Grammar loading (tree_sitter_javascript / tree_sitter_typescript) is performed
+lazily inside __init__ rather than at module top level. This ensures that
+importing the JavaScript analyzer module (or the overall crap4code package)
+never hard-fails when one of the JS/TS grammar packages is absent.
+
+The language registry wraps instantiation in try/except so that a missing
+grammar simply means that language is omitted from get_language_registry().
+Python and any successfully loaded languages continue to function. This is
+essential for Windows and minimal-dependency scenarios.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 from tree_sitter import Language, Node, Parser
-import tree_sitter_javascript
-import tree_sitter_typescript
 
 from crap4code.core.coverage import normalize_repo_path
 from crap4code.core.models import FunctionMetrics
@@ -100,16 +109,30 @@ def _method_name(node: Node, source: bytes) -> str | None:
 
 
 class JavaScriptFamilyAnalyzer:
-    """Analyze JS or TS source with the language-appropriate grammar."""
+    """Analyze JS or TS source with the language-appropriate grammar.
+
+    The concrete tree-sitter grammar module is imported inside __init__ (based
+    on the requested language) so the module itself remains importable without
+    the grammar packages. Instantiation may raise if the required grammar is
+    missing; callers such as the registry are expected to tolerate that.
+    """
 
     def __init__(self, language: str) -> None:
         self.language = language
         self.extensions = (".ts", ".tsx") if language == "typescript" else (".js", ".jsx", ".mjs", ".cjs")
-        grammar = (
-            Language(tree_sitter_typescript.language_typescript())
-            if language == "typescript"
-            else Language(tree_sitter_javascript.language())
-        )
+
+        # Grammar import is deliberately inside the constructor (lazy).
+        # This protects top-level package imports when a grammar wheel is
+        # unavailable (Windows wheel gaps, minimal installs, air-gapped, etc.).
+        if language == "typescript":
+            import tree_sitter_typescript
+
+            grammar = Language(tree_sitter_typescript.language_typescript())
+        else:
+            import tree_sitter_javascript
+
+            grammar = Language(tree_sitter_javascript.language())
+
         self._parser = Parser(grammar)
 
     def analyze(self, root: Path, files: list[Path]) -> list[FunctionMetrics]:

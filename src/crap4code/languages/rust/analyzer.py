@@ -1,11 +1,18 @@
-"""Tree-sitter based Rust analyzer."""
+"""Tree-sitter based Rust analyzer.
+
+Grammar loading is performed lazily inside __init__ (not at module import time).
+This allows the analyzer module (and therefore `import crap4code`) to succeed
+even if the optional `tree-sitter-rust` package is absent. The registry catches
+instantiation failures for unavailable languages and omits them, enabling
+Python-only and partial-language deployments (critical for some Windows/CI
+environments where not all native wheels are available).
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 from tree_sitter import Language, Node, Parser
-import tree_sitter_rust
 
 from crap4code.core.coverage import normalize_repo_path
 from crap4code.core.models import FunctionMetrics
@@ -58,12 +65,24 @@ def _count_complexity(source: bytes, root: Node) -> int:
 
 
 class RustAnalyzer:
-    """Analyze Rust source using the tree-sitter Rust grammar."""
+    """Analyze Rust source using the tree-sitter Rust grammar.
+
+    The native grammar is imported inside __init__ so that merely importing
+    this module (or the parent package) does not require the grammar package
+    to be present.
+    """
 
     language = "rust"
     extensions = (".rs",)
 
     def __init__(self) -> None:
+        # Lazy import of the grammar package. This can raise ImportError (or
+        # ModuleNotFoundError) if tree-sitter-rust is not installed. The
+        # language registry catches this and omits "rust" from the available
+        # languages so that Python (and other present languages) continue to
+        # work.
+        import tree_sitter_rust
+
         self._parser = Parser(Language(tree_sitter_rust.language()))
 
     def analyze(self, root: Path, files: list[Path]) -> list[FunctionMetrics]:

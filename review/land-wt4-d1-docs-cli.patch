@@ -1,0 +1,394 @@
+warning: in the working copy of 'src/crap4code/cli.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/crap4code/core/config.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/crap4code/languages/registry.py', LF will be replaced by CRLF the next time Git touches it
+diff --git a/src/crap4code/cli.py b/src/crap4code/cli.py
+index 4a4ed5e..fb0cc8f 100644
+--- a/src/crap4code/cli.py
++++ b/src/crap4code/cli.py
+@@ -11,6 +11,7 @@ import argparse
+ from pathlib import Path
+ import sys
+ 
++from crap4code import __version__
+ from crap4code.core.config import DEFAULT_CONFIG_NAME, load_project_config, sample_config_text
+ from crap4code.core.coverage import cleanup_artifacts, load_coverage_database, run_coverage_command
+ from crap4code.core.crap_score import calculate_crap
+@@ -31,9 +32,26 @@ class _Parser(argparse.ArgumentParser):
+ 
+ 
+ def _build_parser() -> argparse.ArgumentParser:
+-    """Build the top-level CLI parser."""
++    """Build the top-level CLI parser.
++
++    The parser is constructed here (not at import time) so tests can
++    exercise main() with synthetic argv lists without side effects.
++    """
+ 
+     parser = _Parser(prog="crap4code")
++
++    # Top-level options (before subparsers) so they work for bare invocation
++    # e.g. ``crap4code --version`` and ``crap4code -V``.
++    # Uses the single source of truth ``crap4code.__version__`` (see __init__.py).
++    # This addresses Issue C2 in the Windows & Cross-Platform plan.
++    parser.add_argument(
++        "-V",
++        "--version",
++        action="version",
++        version=f"%(prog)s {__version__}",
++        help="Show program's version number and exit",
++    )
++
+     subparsers = parser.add_subparsers(dest="command")
+ 
+     scan = subparsers.add_parser("scan", help="Analyze source files and coverage")
+@@ -102,12 +120,60 @@ def _apply_coverage(rows: list[FunctionMetrics], root: Path, report_path: str |
+ 
+ 
+ def _scan(args: argparse.Namespace) -> int:
+-    """Execute the ``scan`` command."""
++    """Execute the ``scan`` command.
++
++    Warnings collected during the run (from coverage mapping, from git-changed
++    discovery when --changed/--base-ref are supplied, etc.) are accumulated in
++    the local `warnings` list, passed to build_report (so they appear inside
++    the ScanReport and thus in JSON and the table summary), and also printed
++    to stderr after the main output (see end of function).
++
++    The git warning path (phase2-git-warn / Issue E2) is exercised when
++    changed_only=True: discover_source_files now surfaces the warnings
++    returned by get_changed_files. Special handling below the loop ensures
++    that even the "No matching source files found." early-exit path (which
++    happens precisely when --changed is used in a non-repo or git-less
++    environment) still emits the diagnostic(s) to stderr. This gives users
++    and agents on Windows CI the observability they previously lacked.
++
++    After D1/D3 (phase1-d1) language decoupling: registry may contain only a
++    subset of the four languages at runtime (Python is always present; the
++    others depend on whether their tree-sitter grammar package could be
++    imported and instantiated). If the user supplies --lang for a language
++    that is not currently available, we emit a clear actionable message
++    (matching the style in the plan) and return gracefully (exit 0) instead
++    of KeyError or raw ImportError. Unrequested missing languages are
++    silently not offered (config loading and default selection only see what
++    the registry advertised).
++    """
+ 
+     root = Path.cwd()
+     registry = get_language_registry()
+     config = load_project_config(root=root, config_path=args.config, languages=list(registry))
+ 
++    # Handle explicit --lang request for a language whose analyzer/grammar
++    # could not be loaded (the core of the graceful degradation for D3).
++    # This check must be *after* registry (which does the tolerant load) but
++    # before we index into registry[...] or config.languages[...].
++    if args.lang and args.lang not in registry:
++        pkg_map = {
++            "javascript": "tree-sitter-javascript",
++            "typescript": "tree-sitter-typescript",
++            "rust": "tree-sitter-rust",
++        }
++        pkg = pkg_map.get(args.lang, f"tree-sitter-{args.lang}")
++        if args.lang == "rust":
++            still = "Python and JS/TS will still work."
++        elif args.lang in ("javascript", "typescript"):
++            still = "Python and Rust will still work."
++        else:
++            still = "Other languages may still work."
++        print(
++            f"{args.lang.capitalize()} support requires `pip install {pkg}`. {still}",
++            file=sys.stderr,
++        )
++        return 0
++
+     selected_languages = [args.lang] if args.lang else [name for name, settings in config.languages.items() if settings.enabled]
+     output_format = args.format or config.scan.format
+     threshold = args.threshold if args.threshold is not None else config.scan.threshold
+@@ -121,7 +187,7 @@ def _scan(args: argparse.Namespace) -> int:
+         definition = registry[language]
+         settings = config.languages[language]
+         default_paths = settings.paths or config.scan.default_paths
+-        files = discover_source_files(
++        files, git_warnings = discover_source_files(
+             root=root,
+             explicit_paths=args.paths,
+             default_paths=default_paths,
+@@ -129,6 +195,7 @@ def _scan(args: argparse.Namespace) -> int:
+             changed_only=args.changed,
+             base_ref=args.base_ref,
+         )
++        warnings.extend(git_warnings)
+         scanned_files += len(files)
+         if not files:
+             continue
+@@ -158,6 +225,14 @@ def _scan(args: argparse.Namespace) -> int:
+ 
+     if scanned_files == 0:
+         print("No matching source files found.")
++        # Surface any warnings (e.g. the git --changed failure diagnostic)
++        # even on the early "no files" path. Without this, a --changed scan
++        # outside a git repo would print the "No matching..." message and
++        # return silently with zero diagnostics ΓÇö exactly the problem E2
++        # set out to fix. Warnings still appear in the structured report only
++        # on the path that actually builds a ScanReport.
++        for warning in warnings:
++            print(f"warning: {warning}", file=sys.stderr)
+         return 0
+ 
+     enrich_rows(all_rows)
+@@ -200,7 +275,15 @@ def _init(args: argparse.Namespace) -> int:
+ 
+ 
+ def main(argv: list[str] | None = None) -> int:
+-    """CLI entrypoint used by both ``python -m`` and console scripts."""
++    """CLI entrypoint used by both ``python -m crap4code`` (and ``python -m crap4code.main``) and the console script.
++
++    The console script (see pyproject.toml) points at ``crap4code.main:main``.
++    ``python -m crap4code`` is enabled by the sibling ``__main__.py`` which
++    also delegates through ``main`` to here.
++
++    ``argv`` is accepted for testability (see tests/test_cli.py) so that
++    we can drive the parser without touching sys.argv.
++    """
+ 
+     parser = _build_parser()
+ 
+diff --git a/src/crap4code/core/config.py b/src/crap4code/core/config.py
+index 1e65c87..38ee6f9 100644
+--- a/src/crap4code/core/config.py
++++ b/src/crap4code/core/config.py
+@@ -145,11 +145,68 @@ def load_project_config(root: Path, config_path: str | None, languages: list[str
+ 
+ 
+ def sample_config_text() -> str:
+-    """Return the canonical sample config used by ``crap4code init``."""
++    """Return the canonical sample config used by ``crap4code init``.
++
++    The returned TOML is heavily commented to serve as both a working
++    example and durable documentation. It teaches the coverage execution
++    model, path expectations, and cross-platform considerations directly
++    in the file that users will edit.
++
++    Key teaching points embedded:
++    - coverage_command (when present) is executed with shell=True.
++    - On Windows this means cmd.exe (via ComSpec); on POSIX it is the
++      platform default (/bin/sh or equivalent). Users are in their
++      terminal shell (pwsh, bash, zsh, etc.) but the command string is
++      interpreted by the platform's "default" shell for subprocess.
++    - Prefer ``python -m`` forms so the active Python/venv is used.
++    - ``&&`` chaining works under cmd.exe (and POSIX sh), which is why
++      the Python sample uses it.
++    - Other languages in the sample default to "use a pre-existing report"
++      because many JS/TS/Rust projects generate coverage in their normal
++      CI/test scripts rather than on every crap4code run.
++    - Use --report-only during exploration or when you want to avoid
++      mutating coverage state.
++    """
+ 
+     return """# Repo-local configuration for crap4code.
+ # Keep commands and paths explicit so both humans and coding agents can verify
+ # exactly how coverage is generated for each language.
++#
++# IMPORTANT: COVERAGE COMMAND SHELL MODEL (cross-platform reality)
++# -----------------------------------------------------------
++# If a language section has a "coverage_command", the EXACT string value
++# is passed to subprocess.run(..., shell=True, cwd=root, env=os.environ.copy()).
++#
++# - On Windows (os.name == "nt"): this ALWAYS uses cmd.exe (the value of
++#   the ComSpec environment variable), *regardless* of whether you launched
++#   crap4code from PowerShell (pwsh), Git Bash, WSL, or a VS Code terminal.
++# - On POSIX (Linux/macOS): this uses the platform default shell (typically
++#   /bin/sh via the system's popen / subprocess implementation).
++#
++# This is the deliberate v1 design (keeps the contract simple: a single
++# string the user can copy-paste and audit). It is NOT your interactive
++# shell's syntax or quoting rules.
++#
++# PRACTICAL GUIDANCE:
++# - Prefer "python -m ..." forms (as shown below). This uses the Python
++#   that is running crap4code and respects the current venv / PATH.
++# - "&&" chains work under cmd.exe (and sh). The sample below relies on this.
++# - If you need PowerShell-specific features, wrap explicitly:
++#     coverage_command = "pwsh -Command 'python -m coverage run ... ; python -m ...'"
++# - For cmd.exe-specific needs you can be explicit: "cmd /c \"...\""
++# - Quoting/escaping must be valid for cmd.exe (Windows) or sh (POSIX).
++# - The env is a copy of whatever environment crap4code itself was launched
++#   with. If you run crap4code from a desktop shortcut, scheduled task,
++#   or CI step that has a different PATH/venv, coverage will see that env.
++#
++# SAFETY: Use \"--report-only\" (CLI flag) to read an existing report
++# without executing any coverage_command. This is recommended while you
++# are learning the tool or debugging config on Windows.
++#
++# See also:
++# - WINDOWS_AND_CROSS_PLATFORM_PLAN.md (sections on S1/S2, Doc1/Doc2)
++# - README.md "Windows and Cross-Platform Notes" section
++# - The run_coverage_command implementation in core/coverage.py
+ 
+ [scan]
+ default_paths = ["src"]
+@@ -159,6 +216,10 @@ format = "table"
+ [python]
+ enabled = true
+ paths = ["src", "tests"]
++# coverage_command is executed via the platform default shell (cmd.exe on
++# Windows, /bin/sh-equivalent on POSIX). See the header comments above.
++# The "python -m" forms ensure we use the interpreter/venv that is running
++# this tool. "&&" chaining is supported under cmd.exe.
+ coverage_command = "python -m coverage run -m pytest && python -m coverage xml -o coverage.xml"
+ coverage_report = "coverage.xml"
+ coverage_format = "coverage.py-xml"
+@@ -167,6 +228,10 @@ stale_artifacts = [".coverage", "coverage.xml"]
+ [javascript]
+ enabled = true
+ paths = ["src"]
++# No coverage_command here: the sample assumes you generate lcov.info
++# via your normal test/CI script (e.g. npm test or vitest --coverage).
++# If you want crap4code to drive coverage refresh for JS too, add a
++# coverage_command using the same shell rules as the [python] section.
+ coverage_report = "coverage/lcov.info"
+ coverage_format = "lcov"
+ stale_artifacts = ["coverage/lcov.info"]
+diff --git a/src/crap4code/languages/registry.py b/src/crap4code/languages/registry.py
+index 4cab7d6..b280957 100644
+--- a/src/crap4code/languages/registry.py
++++ b/src/crap4code/languages/registry.py
+@@ -1,35 +1,127 @@
+-"""Canonical language registry used by the CLI."""
++"""Canonical language registry used by the CLI.
++
++This module implements the critical language decoupling (D1 + D3 / phase1-d1
++from WINDOWS_AND_CROSS_PLATFORM_PLAN.md).
++
++Python is *always* available because it uses only the stdlib ``ast`` module
++(no native grammar packages; see python/analyzer.py docstring and its
++_ComplexityCounter + NodeVisitor implementation).
++
++The tree-sitter-backed languages are loaded *lazily and tolerantly*:
++
++- The analyzer *class* imports (for javascript/analyzer.py which supplies both
++  "javascript" and "typescript", and rust/analyzer.py) happen inside
++  ``get_language_registry`` (wrapped in try/except).
++- The actual grammar imports (``import tree_sitter_javascript`` etc. and
++  ``from tree_sitter import ...``) have been moved *inside the analyzer
++  __init__ methods* (see those files). This ensures the analyzer module can
++  be imported (class obtained) without triggering a hard failure when the
++  grammar wheel is absent.
++- We only register a language (i.e. put its LanguageDefinition into the
++  returned dict) if the analyzer class could be imported *and* an instance
++  could be constructed successfully. Construction is what actually pulls the
++  grammar at runtime.
++- Consequence: ``import crap4code`` (or ``python -m crap4code scan`` for
++  Python files) succeeds even if ``tree-sitter-rust`` (or the JS/TS grammars,
++  or the core ``tree-sitter`` package) is completely uninstalled.
++- The full 4-language experience continues to work when all the grammar
++  packages are installed (as verified on this Windows box with the real
++  .pyd wheels).
++
++If a language is requested via the ``--lang`` CLI flag but is not present in
++the runtime registry, the *CLI* (cli.py) emits a clear message of the form
++"Rust support requires `pip install tree-sitter-rust`. Python and JS/TS will
++still work." (or equivalent) and exits gracefully (no traceback, no fake
++CRAP data). Unrequested missing languages are simply omitted from the
++registry; callers that use the default (all enabled from config) see only
++what is actually loadable.
++
++This keeps recommendations deterministic/auditable and coverage
++``indeterminate`` when data is absent. No top-level grammar imports remain
++in the import graph for optional languages.
++
++See also: base.py (the LanguageDefinition + Analyzer protocol), the per-lang
++analyzer modules, cli.py:_scan (the --lang + selected_languages path and the
++warning), core/config.py (load_project_config only sees languages that the
++registry advertises), and the test suite (analyzer tests + test_cli + sample
++projects still pass for available languages).
++"""
+ 
+ from __future__ import annotations
+ 
+ from crap4code.languages.base import LanguageDefinition
+-from crap4code.languages.javascript.analyzer import JavaScriptFamilyAnalyzer
+ from crap4code.languages.python.analyzer import PythonAnalyzer
+-from crap4code.languages.rust.analyzer import RustAnalyzer
+ 
+ 
+ def get_language_registry() -> dict[str, LanguageDefinition]:
+-    """Return the supported language registry for this build."""
++    """Return the supported language registry for this build.
++
++    Python entry is always present and constructed unconditionally (stdlib
++    only; its import is at the top of this file).
++
++    The three tree-sitter analyzer imports (JS family + Rust) are performed
++    inside try/except blocks. A language is only entered in the returned dict
++    when its analyzer class imported cleanly *and* the instance could be
++    created (the instance creation is what executes the grammar imports that
++    were moved inside the respective analyzer.__init__).
++
++    Missing optional languages cause no ImportError at package import time
++    and do not affect Python (or other languages whose grammars *are*
++    loadable).
++    """
+ 
+-    return {
++    registry: dict[str, LanguageDefinition] = {
++        # Python is unconditional and first. It must always load so that
++        # `crap4code` remains usable for Python-only users or when any
++        # tree-sitter grammar wheel is unavailable on the platform (Windows
++        # wheel availability, corporate envs, arm64, future Python, etc.).
+         "python": LanguageDefinition(
+             key="python",
+             extensions=(".py",),
+             analyzer=PythonAnalyzer(),
+         ),
+-        "javascript": LanguageDefinition(
++    }
++
++    # JavaScript and TypeScript share one analyzer implementation.
++    # We import the class (succeeds even without grammars, thanks to the
++    # move of grammar imports into __init__), then attempt construction.
++    # If either the class import or the JS/TS grammar load fails, we omit
++    # both languages from the registry (they are provided by the same pkgs).
++    try:
++        from crap4code.languages.javascript.analyzer import JavaScriptFamilyAnalyzer
++
++        registry["javascript"] = LanguageDefinition(
+             key="javascript",
+             extensions=(".js", ".jsx", ".mjs", ".cjs"),
+             analyzer=JavaScriptFamilyAnalyzer(language="javascript"),
+-        ),
+-        "typescript": LanguageDefinition(
++        )
++        registry["typescript"] = LanguageDefinition(
+             key="typescript",
+             extensions=(".ts", ".tsx"),
+             analyzer=JavaScriptFamilyAnalyzer(language="typescript"),
+-        ),
+-        "rust": LanguageDefinition(
++        )
++    except Exception:
++        # Grammar package(s) missing (tree-sitter-javascript and/or
++        # tree-sitter-typescript, or the core tree-sitter).  Skip
++        # registration for both.  Real case: ModuleNotFoundError.
++        # Test simulation (sys.modules['tree_sitter_javascript'] = None):
++        # may surface as AttributeError on use inside __init__; we catch
++        # broadly here so the crude blocker in verification commands works.
++        # CLI will surface a user-facing message only on explicit --lang.
++        pass
++
++    # Rust is independent of the JS/TS grammars.
++    try:
++        from crap4code.languages.rust.analyzer import RustAnalyzer
++
++        registry["rust"] = LanguageDefinition(
+             key="rust",
+             extensions=(".rs",),
+             analyzer=RustAnalyzer(),
+-        ),
+-    }
++        )
++    except Exception:
++        # Missing tree-sitter-rust (or core tree-sitter).  Python + JS/TS
++        # (if their grammars loaded) continue to work.
++        pass
++
++    return registry

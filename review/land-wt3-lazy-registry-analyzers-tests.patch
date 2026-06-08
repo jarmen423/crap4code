@@ -1,0 +1,333 @@
+warning: in the working copy of 'src/crap4code/languages/javascript/analyzer.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/crap4code/languages/registry.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/crap4code/languages/rust/analyzer.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/test_coverage_mapping.py', LF will be replaced by CRLF the next time Git touches it
+diff --git a/src/crap4code/languages/javascript/analyzer.py b/src/crap4code/languages/javascript/analyzer.py
+index 12f8a47..b9354eb 100644
+--- a/src/crap4code/languages/javascript/analyzer.py
++++ b/src/crap4code/languages/javascript/analyzer.py
+@@ -1,12 +1,21 @@
+-"""Tree-sitter based JavaScript and TypeScript analyzer."""
++"""Tree-sitter based JavaScript and TypeScript analyzer.
++
++Grammar loading (tree_sitter_javascript / tree_sitter_typescript) is performed
++lazily inside __init__ rather than at module top level. This ensures that
++importing the JavaScript analyzer module (or the overall crap4code package)
++never hard-fails when one of the JS/TS grammar packages is absent.
++
++The language registry wraps instantiation in try/except so that a missing
++grammar simply means that language is omitted from get_language_registry().
++Python and any successfully loaded languages continue to function. This is
++essential for Windows and minimal-dependency scenarios.
++"""
+ 
+ from __future__ import annotations
+ 
+ from pathlib import Path
+ 
+ from tree_sitter import Language, Node, Parser
+-import tree_sitter_javascript
+-import tree_sitter_typescript
+ 
+ from crap4code.core.coverage import normalize_repo_path
+ from crap4code.core.models import FunctionMetrics
+@@ -100,16 +109,30 @@ def _method_name(node: Node, source: bytes) -> str | None:
+ 
+ 
+ class JavaScriptFamilyAnalyzer:
+-    """Analyze JS or TS source with the language-appropriate grammar."""
++    """Analyze JS or TS source with the language-appropriate grammar.
++
++    The concrete tree-sitter grammar module is imported inside __init__ (based
++    on the requested language) so the module itself remains importable without
++    the grammar packages. Instantiation may raise if the required grammar is
++    missing; callers such as the registry are expected to tolerate that.
++    """
+ 
+     def __init__(self, language: str) -> None:
+         self.language = language
+         self.extensions = (".ts", ".tsx") if language == "typescript" else (".js", ".jsx", ".mjs", ".cjs")
+-        grammar = (
+-            Language(tree_sitter_typescript.language_typescript())
+-            if language == "typescript"
+-            else Language(tree_sitter_javascript.language())
+-        )
++
++        # Grammar import is deliberately inside the constructor (lazy).
++        # This protects top-level package imports when a grammar wheel is
++        # unavailable (Windows wheel gaps, minimal installs, air-gapped, etc.).
++        if language == "typescript":
++            import tree_sitter_typescript
++
++            grammar = Language(tree_sitter_typescript.language_typescript())
++        else:
++            import tree_sitter_javascript
++
++            grammar = Language(tree_sitter_javascript.language())
++
+         self._parser = Parser(grammar)
+ 
+     def analyze(self, root: Path, files: list[Path]) -> list[FunctionMetrics]:
+diff --git a/src/crap4code/languages/registry.py b/src/crap4code/languages/registry.py
+index 4cab7d6..198b127 100644
+--- a/src/crap4code/languages/registry.py
++++ b/src/crap4code/languages/registry.py
+@@ -1,35 +1,100 @@
+-"""Canonical language registry used by the CLI."""
++"""Canonical language registry used by the CLI.
++
++Language support for JavaScript, TypeScript, and Rust depends on optional
++native tree-sitter grammar packages (tree-sitter-javascript, -typescript,
++-tree-sitter-rust). These are declared as hard dependencies today, but the
++real world (especially Windows + fresh venvs, corporate proxies, arm64, CI
++images without the exact wheels) means any one of them can be absent.
++
++This module therefore performs *lazy* registration:
++
++- Python is always registered (it uses only the stdlib `ast` module; no
++  tree-sitter grammar is required).
++- For the others we attempt the import + analyzer construction inside
++  per-language try/except blocks. Any failure (ImportError for the grammar,
++  or other load-time problem) simply means that language key is omitted from
++  the returned registry.
++
++Callers (primarily cli._scan) are responsible for checking presence and
++emitting a clear diagnostic when a user or config requests an unavailable
++language. This gives the "Python still works; ask for Rust and you get a
++helpful message" behavior required by the Windows/cross-platform plan.
++
++See also:
++- languages/python/analyzer.py (stdlib only)
++- languages/javascript/analyzer.py and rust/analyzer.py (lazy grammar imports
++  inside their __init__)
++"""
+ 
+ from __future__ import annotations
+ 
+ from crap4code.languages.base import LanguageDefinition
+-from crap4code.languages.javascript.analyzer import JavaScriptFamilyAnalyzer
+-from crap4code.languages.python.analyzer import PythonAnalyzer
+-from crap4code.languages.rust.analyzer import RustAnalyzer
+ 
+ 
+ def get_language_registry() -> dict[str, LanguageDefinition]:
+-    """Return the supported language registry for this build."""
+-
+-    return {
+-        "python": LanguageDefinition(
+-            key="python",
+-            extensions=(".py",),
+-            analyzer=PythonAnalyzer(),
+-        ),
+-        "javascript": LanguageDefinition(
++    """Return the supported language registry for this build.
++
++    The result only contains languages whose analyzers could be instantiated
++    in the current Python environment. Missing grammar packages cause the
++    corresponding entry to be absent rather than crashing the import or the
++    whole tool.
++
++    This function (and therefore `import crap4code`) is safe to call even
++    when only a subset of the tree-sitter-* grammar packages are installed.
++    """
++
++    registry: dict[str, LanguageDefinition] = {}
++
++    # Python is special: always available, zero extra native dependencies.
++    # We import it inside the function (not at module scope of registry) for
++    # symmetry and to keep the top of this module extremely lightweight.
++    from crap4code.languages.python.analyzer import PythonAnalyzer
++
++    registry["python"] = LanguageDefinition(
++        key="python",
++        extensions=(".py",),
++        analyzer=PythonAnalyzer(),
++    )
++
++    # JavaScript support (requires tree-sitter-javascript at construction time).
++    try:
++        from crap4code.languages.javascript.analyzer import JavaScriptFamilyAnalyzer
++
++        registry["javascript"] = LanguageDefinition(
+             key="javascript",
+             extensions=(".js", ".jsx", ".mjs", ".cjs"),
+             analyzer=JavaScriptFamilyAnalyzer(language="javascript"),
+-        ),
+-        "typescript": LanguageDefinition(
++        )
++    except Exception:
++        # Grammar (or its transitive load) unavailable. JS omitted; continue.
++        # A clear warning will be emitted by the CLI if the user/config asked
++        # for it explicitly.
++        pass
++
++    # TypeScript support (separate grammar package from JS).
++    # We deliberately attempt it in its own try so that a missing TS grammar
++    # does not also drop JavaScript.
++    try:
++        from crap4code.languages.javascript.analyzer import JavaScriptFamilyAnalyzer
++
++        registry["typescript"] = LanguageDefinition(
+             key="typescript",
+             extensions=(".ts", ".tsx"),
+             analyzer=JavaScriptFamilyAnalyzer(language="typescript"),
+-        ),
+-        "rust": LanguageDefinition(
++        )
++    except Exception:
++        pass
++
++    # Rust support.
++    try:
++        from crap4code.languages.rust.analyzer import RustAnalyzer
++
++        registry["rust"] = LanguageDefinition(
+             key="rust",
+             extensions=(".rs",),
+             analyzer=RustAnalyzer(),
+-        ),
+-    }
++        )
++    except Exception:
++        pass
++
++    return registry
+diff --git a/src/crap4code/languages/rust/analyzer.py b/src/crap4code/languages/rust/analyzer.py
+index dec347f..7dddb3f 100644
+--- a/src/crap4code/languages/rust/analyzer.py
++++ b/src/crap4code/languages/rust/analyzer.py
+@@ -1,11 +1,18 @@
+-"""Tree-sitter based Rust analyzer."""
++"""Tree-sitter based Rust analyzer.
++
++Grammar loading is performed lazily inside __init__ (not at module import time).
++This allows the analyzer module (and therefore `import crap4code`) to succeed
++even if the optional `tree-sitter-rust` package is absent. The registry catches
++instantiation failures for unavailable languages and omits them, enabling
++Python-only and partial-language deployments (critical for some Windows/CI
++environments where not all native wheels are available).
++"""
+ 
+ from __future__ import annotations
+ 
+ from pathlib import Path
+ 
+ from tree_sitter import Language, Node, Parser
+-import tree_sitter_rust
+ 
+ from crap4code.core.coverage import normalize_repo_path
+ from crap4code.core.models import FunctionMetrics
+@@ -58,12 +65,24 @@ def _count_complexity(source: bytes, root: Node) -> int:
+ 
+ 
+ class RustAnalyzer:
+-    """Analyze Rust source using the tree-sitter Rust grammar."""
++    """Analyze Rust source using the tree-sitter Rust grammar.
++
++    The native grammar is imported inside __init__ so that merely importing
++    this module (or the parent package) does not require the grammar package
++    to be present.
++    """
+ 
+     language = "rust"
+     extensions = (".rs",)
+ 
+     def __init__(self) -> None:
++        # Lazy import of the grammar package. This can raise ImportError (or
++        # ModuleNotFoundError) if tree-sitter-rust is not installed. The
++        # language registry catches this and omits "rust" from the available
++        # languages so that Python (and other present languages) continue to
++        # work.
++        import tree_sitter_rust
++
+         self._parser = Parser(Language(tree_sitter_rust.language()))
+ 
+     def analyze(self, root: Path, files: list[Path]) -> list[FunctionMetrics]:
+diff --git a/tests/test_coverage_mapping.py b/tests/test_coverage_mapping.py
+index 261dbd9..33297e7 100644
+--- a/tests/test_coverage_mapping.py
++++ b/tests/test_coverage_mapping.py
+@@ -1,4 +1,9 @@
+-"""Coverage mapping tests."""
++"""Coverage mapping tests.
++
++These tests protect cross-platform coverage report ingestion and the R1
++case-mismatch robustness fix (Windows primary, but exercised everywhere for
++determinism).
++"""
+ 
+ from __future__ import annotations
+ 
+@@ -63,6 +68,72 @@ class CoverageMappingTests(unittest.TestCase):
+         self.assertEqual(state, "measured")
+         self.assertEqual(percent, 50.0)
+ 
++    def test_case_mismatch_coverage_still_measured(self) -> None:
++        """Windows / case-insensitive FS case-mismatch robustness (R1 + phase1-tests).
++
++        Scenario protected:
++        - On Windows (and some macOS volumes) the on-disk source tree may be
++          walked with one casing (e.g. "Src/CamelCase.py" because a directory
++          was created that way or the user's checkout preserved it).
++        - Coverage tools / lcov / coverage.xml often canonicalize or record
++          filenames using a different casing (commonly all lower, or the
++          casing the collector saw).
++        - Before the casefold logic in CoverageDatabase.coverage_for, this
++          produced silent "indeterminate" even though the lines were covered.
++          That violates the core promise: "missing coverage must stay
++          indeterminate; never invent a CRAP score" ΓÇö but we *should* use
++          measured data when we can deterministically locate it.
++
++        The test creates a report that records "src/camelcase.py" (lower) while
++        we query using "Src/CamelCase.py" (mixed). After the robustness change
++        we expect "measured" + correct percentage, and the casefold_matches
++        list is populated for warning emission in the CLI.
++
++        This test is written to be fully deterministic on both Windows and
++        POSIX (the fallback is now unconditional on exact miss).
++        """
++        with tempfile.TemporaryDirectory() as tmpdir:
++            root = Path(tmpdir)
++            report = root / "coverage.xml"
++            # Report records a lower-cased / differently-cased path (common in practice).
++            report.write_text(
++                textwrap.dedent(
++                    """\
++                    <?xml version="1.0" ?>
++                    <coverage>
++                      <packages>
++                        <package name="Src">
++                          <classes>
++                            <class name="CamelCase" filename="src/camelcase.py">
++                              <lines>
++                                <line number="10" hits="1"/>
++                                <line number="11" hits="1"/>
++                                <line number="12" hits="0"/>
++                              </lines>
++                            </class>
++                          </classes>
++                        </package>
++                      </packages>
++                    </coverage>
++                    """
++                ),
++                encoding="utf-8",
++            )
++
++            database = load_coverage_database(root=root, report_path="coverage.xml", report_format="coverage.py-xml")
++
++            # The "source" side (what an analyzer row would carry) uses the
++            # casing from the actual file on disk / FS walk.
++            state, percent = database.coverage_for("Src/CamelCase.py", 10, 12)
++
++        self.assertIsNotNone(database)
++        self.assertEqual(state, "measured")
++        # Use AlmostEqual to avoid platform float repr differences for 66.6...
++        self.assertAlmostEqual(percent, 200.0 / 3.0, places=10)
++
++        # The casefold logic recorded the mismatch for later warning.
++        self.assertIn("Src/CamelCase.py", getattr(database, "casefold_matches", []))
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
