@@ -101,8 +101,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output", "-o",
         metavar="FILE",
         help="Write the report to this file instead of printing to stdout. "
-             "Very useful for --format html (saves a nice .html file) or --format json. "
-             "For the rich 'table' format, a plain text version is written.",
+             "The filename extension can imply the format: .html/.htm → HTML, .json → JSON. "
+             "If no --format is given, we infer from the extension. "
+             "For the rich 'table' format (or when writing to a non-.html/.json file), "
+             "a plain-text version is written.",
     )
     scan.add_argument(
         "--config",
@@ -207,6 +209,18 @@ def _scan(args: argparse.Namespace) -> int:
 
     selected_languages = [args.lang] if args.lang else [name for name, settings in config.languages.items() if settings.enabled]
     output_format = args.format or config.scan.format
+
+    # If the user gave --output with a clear extension but no explicit --format,
+    # infer the format from the filename. This makes the common case
+    #   crap4code scan --output report.html
+    # do the right thing without requiring --format html.
+    if not args.format and args.output:
+        ext = Path(args.output).suffix.lower()
+        if ext in (".html", ".htm"):
+            output_format = "html"
+        elif ext == ".json":
+            output_format = "json"
+
     threshold = args.threshold if args.threshold is not None else config.scan.threshold
 
     all_rows: list[FunctionMetrics] = []

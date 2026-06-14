@@ -76,7 +76,10 @@ Positional `paths...`:
 
   **Recommended ways to save it** (instead of letting it print to your terminal):
   ```powershell
-  # Best: use --output (or -o)
+  # Even better now: the .html extension implies the format
+  crap4code scan -o crap4code-report.html
+
+  # Or be explicit
   crap4code scan --format html -o crap4code-report.html
 
   # Or classic shell redirection
@@ -85,6 +88,8 @@ Positional `paths...`:
   Then open the `.html` file in any browser. On a remote machine, write the file on the remote side then download it (e.g. with `scp`).
 
   The tool will print a helpful message when it writes the file via `--output`.
+
+  The same extension inference works for `.json`. If you use `--output` with a `.html` name and no `--format`, it will automatically produce HTML.
 
 `--threshold <float>`:
 
