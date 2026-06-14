@@ -34,8 +34,30 @@ Recommendations are deterministic and ordered:
 
 (See `src/crap4code/core/recommendations.py:enrich_rows` and the rules in `docs/user-guide/concepts.md`.)
 
+## Function Filter (`--function`)
+
+- Exact match on `function_name` only (not `container`).
+- Repeatable; union of names.
+- Applied after analysis and coverage mapping, before summaries and threshold evaluation.
+- Duplicate names across files: all matching rows are included unless scope is narrowed with explicit source paths.
+- No match (or empty intersection with `--baseline`) → exit 1 with actionable stderr.
+- Unselected functions do not affect summary counts, recommendations, or exit 2.
+
+## Coverage Overrides (`--coverage-report`, `--coverage-format`)
+
+- CLI overrides do not mutate `.crap4code.toml`.
+- Explicit `--coverage-report`: missing file → exit 1 (never fall back to config path).
+- Format sniffing validates LCOV vs coverage.py XML when overrides are used.
+- Config-only missing reports: soft warning + indeterminate coverage (unchanged).
+
+## Compact Output (`--format compact`)
+
+One line per function:
+
+`file::function | lines=START-END | CX=N | coverage=N.N% | CRAP=N.NN | risk=LEVEL`
+
 ## Output & Exit Code Rules
 
 - Always emit collected warnings (never silent).
-- Exit 2 only on *measured* CRAP > threshold (never on indeterminate).
-- JSON is stable for agent consumption; table is for humans.
+- Exit 2 only on *measured* CRAP > threshold in the filtered result set (never on indeterminate).
+- JSON is stable for agent consumption; table is for humans; compact is for shell one-liners.

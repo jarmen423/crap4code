@@ -14,7 +14,12 @@ import sys
 
 from crap4code import __version__
 from crap4code.core.config import DEFAULT_CONFIG_NAME, load_project_config, sample_config_text
-from crap4code.core.coverage import cleanup_artifacts, load_coverage_database, run_coverage_command
+from crap4code.core.coverage import (
+    CoverageReportError,
+    cleanup_artifacts,
+    load_coverage_database,
+    run_coverage_command,
+)
 from crap4code.core.crap_score import calculate_crap
 from crap4code.core.files import discover_source_files
 from crap4code.core.models import FunctionMetrics
@@ -22,6 +27,7 @@ from crap4code.core.recommendations import enrich_rows
 from crap4code.core.report import (
     build_report,
     format_report,
+    format_report_compact,
     format_report_html,
     format_report_json,
     render_rich_report,
@@ -36,6 +42,15 @@ class _Parser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
         self.print_usage(sys.stderr)
         self.exit(1, f"{self.prog}: error: {message}\n")
+
+
+def _positive_limit(value: str) -> int:
+    """Argparse type that rejects non-positive --limit values."""
+
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("--limit must be a positive integer")
+    return parsed
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -75,11 +90,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     scan.add_argument(
         "--format",
-        choices=["table", "json", "html"],
+        choices=["table", "json", "html", "compact"],
         help="Output format. 'table' (default) = rich colored TUI with summary panels + table. "
              "Long tables are truncated by default (see --limit / --full). "
              "'json' for CI/agents. 'html' for a self-contained interactive browser report "
-             "(combine with --output/-o or shell redirection to save the file).",
+             "(combine with --output/-o or shell redirection to save the file). "
+             "'compact' = one plain line per function (no Rich/ANSI); ideal for targeted "
+             "remediation after regenerating coverage externally.",
     )
     scan.add_argument(
         "--threshold",
@@ -88,10 +105,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     scan.add_argument(
         "--limit",
-        type=int,
+        type=_positive_limit,
         default=100,
         help="Maximum number of functions to display in the rich terminal table (default: 100). "
-             "Prevents very long output on large codebases. Use --full to show everything.",
+             "Prevents very long output on large codebases. Use --full to show everything. "
+             "Ignored for --format compact.",
     )
     scan.add_argument(
         "--full",
@@ -126,6 +144,27 @@ def _build_parser() -> argparse.ArgumentParser:
              "and reviewing progress vs a full baseline during iterative high-CRAP fixes. "
              "Composes cleanly with explicit paths, --changed, and --report-only.",
     )
+    scan.add_argument(
+        "--function",
+        action="append",
+        dest="functions",
+        metavar="NAME",
+        help="Include only functions whose name matches exactly (repeatable). Applied after "
+             "analysis and coverage mapping. When the same name exists in multiple files, all "
+             "matches are included; pass an explicit source path to narrow scope.",
+    )
+    scan.add_argument(
+        "--coverage-report",
+        metavar="PATH",
+        help="Override the configured coverage report path for this scan (absolute or "
+             "repo-relative). Does not modify .crap4code.toml.",
+    )
+    scan.add_argument(
+        "--coverage-format",
+        choices=["lcov", "coverage.py-xml"],
+        help="Override the configured coverage format for this scan. Validated against the "
+             "report file when used with --coverage-report or when overriding format alone.",
+    )
 
     init = subparsers.add_parser("init", help="Write a sample repo-local config")
     init.add_argument(
@@ -138,11 +177,26 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _apply_coverage(rows: list[FunctionMetrics], root: Path, report_path: str | None, report_format: str | None) -> tuple[list[FunctionMetrics], list[str]]:
+def _apply_coverage(
+    rows: list[FunctionMetrics],
+    root: Path,
+    report_path: str | None,
+    report_format: str | None,
+    *,
+    strict: bool = False,
+) -> tuple[list[FunctionMetrics], list[str]]:
     """Attach measured coverage when a report is available."""
 
     warnings: list[str] = []
-    database = load_coverage_database(root=root, report_path=report_path, report_format=report_format)
+    try:
+        database = load_coverage_database(
+            root=root,
+            report_path=report_path,
+            report_format=report_format,
+            strict=strict,
+        )
+    except CoverageReportError:
+        raise
     if database is None:
         if report_path or report_format:
             warnings.append(
@@ -190,6 +244,47 @@ def _load_baseline(baseline_path: str, warnings: list[str]) -> dict | None:
         return None
 
     return data
+
+
+def _filter_by_function_names(
+    rows: list[FunctionMetrics],
+    requested: frozenset[str],
+    *,
+    scope_rows: list[FunctionMetrics],
+) -> list[FunctionMetrics]:
+    """Keep rows whose ``function_name`` is in *requested* (exact match)."""
+
+    return [row for row in rows if row.function_name in requested]
+
+
+def _emit_function_no_match_error(
+    requested: frozenset[str],
+    scope_rows: list[FunctionMetrics],
+    *,
+    baseline_intersection: bool = False,
+) -> None:
+    """Print an actionable stderr message when --function matching fails."""
+
+    if baseline_intersection:
+        print(
+            "No functions matched the intersection of --function and --baseline.",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            f"No functions matched --function: {', '.join(sorted(requested))}",
+            file=sys.stderr,
+        )
+    if scope_rows:
+        found = sorted({row.function_name for row in scope_rows})
+        preview = ", ".join(found[:20])
+        suffix = f" (and {len(found) - 20} more)" if len(found) > 20 else ""
+        print(f"Functions in scan scope: {preview}{suffix}", file=sys.stderr)
+    print(
+        "Pass an explicit source file path to disambiguate duplicate function names "
+        "across files.",
+        file=sys.stderr,
+    )
 
 
 def _scan(args: argparse.Namespace) -> int:
@@ -264,6 +359,13 @@ def _scan(args: argparse.Namespace) -> int:
 
     threshold = args.threshold if args.threshold is not None else config.scan.threshold
 
+    coverage_override = getattr(args, "coverage_report", None)
+    format_override = getattr(args, "coverage_format", None)
+    coverage_strict = coverage_override is not None or format_override is not None
+    function_filter: frozenset[str] | None = (
+        frozenset(args.functions) if getattr(args, "functions", None) else None
+    )
+
     all_rows: list[FunctionMetrics] = []
     warnings: list[str] = list(config_warnings)
     coverage_commands_run: list[str] = []
@@ -318,12 +420,19 @@ def _scan(args: argparse.Namespace) -> int:
                 return 1
 
         rows = definition.analyzer.analyze(root=root, files=files)
-        rows, coverage_warnings = _apply_coverage(
-            rows,
-            root=root,
-            report_path=settings.coverage_report,
-            report_format=settings.coverage_format,
-        )
+        report_path = coverage_override or settings.coverage_report
+        report_format = format_override or settings.coverage_format
+        try:
+            rows, coverage_warnings = _apply_coverage(
+                rows,
+                root=root,
+                report_path=report_path,
+                report_format=report_format,
+                strict=coverage_strict,
+            )
+        except CoverageReportError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
         warnings.extend(coverage_warnings)
         all_rows.extend(rows)
 
@@ -346,6 +455,14 @@ def _scan(args: argparse.Namespace) -> int:
         for warning in warnings:
             print(f"warning: {warning}", file=sys.stderr)
         return 0
+
+    scope_rows = list(all_rows)
+    if function_filter is not None:
+        filtered = _filter_by_function_names(all_rows, function_filter, scope_rows=scope_rows)
+        if not filtered:
+            _emit_function_no_match_error(function_filter, scope_rows)
+            return 1
+        all_rows = filtered
 
     # Build the lookup for build_report (filter + attach baseline_* on rows).
     # Key construction mirrors report._function_key.
@@ -375,6 +492,21 @@ def _scan(args: argparse.Namespace) -> int:
         baseline_lookup=baseline_lookup,
     )
 
+    if function_filter is not None and report.summary.functions_found == 0:
+        _emit_function_no_match_error(
+            function_filter,
+            scope_rows,
+            baseline_intersection=baseline_lookup is not None,
+        )
+        return 1
+
+    if coverage_override is not None:
+        report.run_metadata["coverage_report_override"] = coverage_override
+    if format_override is not None:
+        report.run_metadata["coverage_format_override"] = format_override
+    if function_filter is not None:
+        report.run_metadata["function_filter"] = sorted(function_filter)
+
     # Handle file output (--output / -o) vs printing to the terminal.
     # This makes --format html (and json) much more user-friendly.
     # You can now do:  crap4code scan --format html -o report.html
@@ -388,6 +520,9 @@ def _scan(args: argparse.Namespace) -> int:
             print(f"Wrote HTML report to {out_path}")
             print("Open the file in any browser — it's a complete, self-contained HTML page "
                   "with Tailwind styling, sortable/filterable table, and embedded JSON data.")
+        elif output_format == "compact":
+            out_path.write_text(format_report_compact(report), encoding="utf-8")
+            print(f"Wrote compact report to {out_path}")
         else:
             # Rich 'table' to a file → write the plain-text version (no ANSI escape codes)
             out_path.write_text(format_report(report), encoding="utf-8")
@@ -405,6 +540,10 @@ def _scan(args: argparse.Namespace) -> int:
         # If you see raw HTML in your terminal, you probably forgot the redirection or --output.
         # Recommended: use -o / --output or redirect:  ... --format html > report.html
         print(format_report_html(report))
+    elif output_format == "compact":
+        compact_text = format_report_compact(report)
+        if compact_text:
+            print(compact_text)
     else:
         # The nice rich TUI experience (colored table, panels, risk highlighting, etc.)
         # Pass display limit so the table doesn't become unusably long on big repos.

@@ -239,6 +239,40 @@ def format_report_json(report: ScanReport) -> str:
     return json.dumps(report.to_dict(), indent=2, sort_keys=True)
 
 
+def format_report_compact(report: ScanReport) -> str:
+    """Emit one plain-text line per function for shell-friendly targeted checks.
+
+    Shape (no summary, panels, recommendations, or ANSI):
+
+        file::function | lines=START-END | CX=N | coverage=N.N% | CRAP=N.NN | risk=LEVEL
+
+    Indeterminate coverage uses ``coverage=N/A`` and ``CRAP=N/A``. Functions are
+    emitted in the same deterministic order as other formats (CRAP desc via
+    ``build_report``).
+    """
+
+    def _fmt_coverage(value: float | None, state: str) -> str:
+        if value is None or state != "measured":
+            return "N/A"
+        return f"{value:.1f}%"
+
+    def _fmt_crap(value: float | None) -> str:
+        return "N/A" if value is None else f"{value:.2f}"
+
+    lines = [
+        (
+            f"{row.file_path}::{row.function_name} | "
+            f"lines={row.start_line}-{row.end_line} | "
+            f"CX={row.complexity} | "
+            f"coverage={_fmt_coverage(row.coverage_percent, row.coverage_state)} | "
+            f"CRAP={_fmt_crap(row.crap_score)} | "
+            f"risk={row.risk_level}"
+        )
+        for row in report.functions
+    ]
+    return "\n".join(lines)
+
+
 # =============================================================================
 # Rich Terminal Renderer (the nice TUI experience)
 # =============================================================================

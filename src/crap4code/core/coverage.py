@@ -16,6 +16,70 @@ import subprocess
 import xml.etree.ElementTree as ET
 
 
+class CoverageReportError(Exception):
+    """Raised when an explicit CLI coverage override is missing or invalid.
+
+    Config-only (soft) coverage loading never raises this; it returns None and
+    lets the scan continue with indeterminate coverage plus a warning.
+    """
+
+
+_SNIFF_BYTES = 4096
+
+
+def resolve_coverage_path(root: Path, report_path: str) -> Path:
+    """Resolve a coverage report path (absolute or repo-relative)."""
+
+    candidate = Path(report_path)
+    return candidate if candidate.is_absolute() else root / candidate
+
+
+def validate_coverage_report(path: Path, report_format: str) -> str | None:
+    """Return a human-readable error when *path* does not match *report_format*.
+
+    Sniffs the first few KB of the file. Returns None when compatible.
+    """
+
+    normalized = report_format.strip().lower()
+    if normalized not in {"coverage.py-xml", "lcov"}:
+        return f"Unsupported coverage format: {report_format!r}"
+
+    if not path.exists():
+        return f"Coverage report not found: {path}"
+
+    try:
+        sample = path.read_bytes()[:_SNIFF_BYTES].decode("utf-8", errors="replace")
+    except OSError as exc:
+        return f"Could not read coverage report {path}: {exc}"
+
+    stripped = sample.lstrip()
+    if normalized == "lcov":
+        if "SF:" in sample and "DA:" in sample:
+            return None
+        if stripped.startswith("TN:"):
+            return None
+        return (
+            f"Coverage report {path} does not look like LCOV "
+            "(expected SF:/DA: records). Check --coverage-format."
+        )
+
+    # coverage.py-xml
+    if "<coverage" in sample or stripped.startswith("<?xml"):
+        try:
+            tree = ET.parse(path)
+            root_tag = tree.getroot().tag.lower()
+            if root_tag == "coverage" or root_tag.endswith("coverage"):
+                return None
+        except ET.ParseError:
+            pass
+        if "<coverage" in sample:
+            return None
+    return (
+        f"Coverage report {path} does not look like coverage.py XML "
+        "(expected <coverage> root). Check --coverage-format."
+    )
+
+
 @dataclass(slots=True)
 class CoverageDatabase:
     """Line-hit database derived from a coverage report.
@@ -168,20 +232,46 @@ def load_coverage_database(
     root: Path,
     report_path: str | None,
     report_format: str | None,
+    *,
+    strict: bool = False,
 ) -> CoverageDatabase | None:
     """Load a coverage database when the configured report exists.
 
     Unknown or missing coverage reports are treated as absent instead of causing
     the whole scan to fail because agents still benefit from complexity-only
     guidance with an explicit indeterminate coverage warning.
+
+    When ``strict=True`` (explicit CLI ``--coverage-report`` or
+    ``--coverage-format`` override), missing files, unsupported formats, and
+    format/content mismatches raise :class:`CoverageReportError` instead of
+    returning None silently.
     """
 
     if not report_path or not report_format:
+        if strict:
+            if not report_path:
+                raise CoverageReportError(
+                    "--coverage-report requires a path when using --coverage-format."
+                )
+            raise CoverageReportError(
+                "Coverage format is required. Pass --coverage-format or set "
+                "coverage_format in .crap4code.toml."
+            )
         return None
 
-    candidate = Path(report_path)
-    resolved = candidate if candidate.is_absolute() else root / candidate
-    if not resolved.exists():
+    resolved = resolve_coverage_path(root, report_path)
+
+    if strict:
+        if not resolved.exists():
+            raise CoverageReportError(
+                f"Coverage report not found: {resolved}. "
+                "Regenerate coverage (e.g. cargo llvm-cov or your project's "
+                "coverage command) and pass the correct --coverage-report path."
+            )
+        mismatch = validate_coverage_report(resolved, report_format)
+        if mismatch:
+            raise CoverageReportError(mismatch)
+    elif not resolved.exists():
         return None
 
     normalized_format = report_format.strip().lower()
@@ -189,6 +279,8 @@ def load_coverage_database(
         return _parse_coverage_xml(resolved, root)
     if normalized_format == "lcov":
         return _parse_lcov(resolved, root)
+    if strict:
+        raise CoverageReportError(f"Unsupported coverage format: {report_format}")
     raise ValueError(f"Unsupported coverage format: {report_format}")
 
 

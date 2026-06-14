@@ -76,7 +76,21 @@ Read an existing report without re-running any coverage commands (very useful on
 crap4code scan --report-only
 ```
 
-See `docs/user-guide/README.md` (and `docs/user-guide/getting-started.md`) for organized walkthroughs and "after a break" reminders.
+Targeted remediation after adding tests (regenerate coverage externally, then print one function):
+
+```bash
+cargo llvm-cov -p my-crate --test my_test --lcov --output-path /tmp/cov.lcov
+
+crap4code scan src/my_module.rs \
+  --lang rust \
+  --report-only \
+  --coverage-report /tmp/cov.lcov \
+  --coverage-format lcov \
+  --function my_risky_fn \
+  --format compact
+```
+
+See `docs/user-guide/usage.md` for the full targeted-workflow guide and `docs/user-guide/README.md` for organized walkthroughs.
 
 ## Config
 

@@ -182,6 +182,54 @@ Only measured scores participate in the threshold check (`is_threshold_exceeded`
 
 The top (up to 10) functions that have non-empty `recommended_actions` are extracted into the report's `recommendations` list (both table-adjacent and JSON). The actions themselves live on every function row and are produced by the deterministic rules in `enrich_rows` / `recommend_actions`.
 
+## Targeted remediation after adding tests
+
+After you add or extend tests for one risky function, regenerate coverage with your project's tool (crap4code does **not** run Rust tests for you). Then point crap4code at the fresh report and select the function:
+
+```bash
+# Example: Rust — generate LCOV with cargo-llvm-cov (or your project's command)
+cargo llvm-cov -p am-server-rs \
+  --test ladybug_forwarding_contract \
+  --lcov --output-path /tmp/ca01.lcov
+
+crap4code scan crates/am-server-rs/src/ladybug_forwarding.rs \
+  --lang rust \
+  --report-only \
+  --coverage-report /tmp/ca01.lcov \
+  --coverage-format lcov \
+  --function safe_traceparent_token \
+  --format compact
+```
+
+Example output:
+
+```
+crates/am-server-rs/src/ladybug_forwarding.rs::safe_traceparent_token | lines=545-567 | CX=12 | coverage=87.5% | CRAP=12.03 | risk=low
+```
+
+### `--function NAME` (repeatable)
+
+- Exact match on `function_name` (not `container`).
+- Applied after analysis and coverage mapping.
+- Summaries, recommendations, threshold, and exit code 2 apply **only** to selected rows.
+- **Duplicate names across files:** all matches are included. Pass an explicit source path to narrow scope, e.g. `crap4code scan src/a.py --function helper`.
+- No match → exit 1 with a list of function names found in scope.
+
+### `--coverage-report PATH` and `--coverage-format`
+
+- Override the configured report for this scan only (does not edit `.crap4code.toml`).
+- Absolute and repo-relative paths are supported.
+- Missing explicit `--coverage-report` → exit 1 (no silent fallback to TOML).
+- `--coverage-format {lcov,coverage.py-xml}` is validated against the file content.
+
+### `--format compact`
+
+- One plain line per matched function; no Rich panels, summaries, or ANSI on stdout.
+- Warnings still print to stderr.
+- Ideal for shell scripts without `jq`.
+
+Composes with `--baseline`, explicit paths, `--changed` (file scope), and `--threshold`.
+
 ## --report-only Is Your Friend
 
 While you are:

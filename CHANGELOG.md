@@ -7,8 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.5.0] - 2026-06-14
+
 ### Added
-- `--baseline <prior.json>` flag on `scan`. Loads a previous `--format json` report, filters the result set to only functions that existed in it, attaches `baseline_crap_score` / `baseline_coverage_percent` snapshots on the matching rows, and records `baseline_path` + `baseline_matched` in the summary / run_metadata. Rich TUI and self-contained HTML now render deltas in the CRAP column (`current (Δ)`) with color for improvement. Primary use case: after a full baseline, repeatedly run focused scans (via explicit paths or `--changed`) + `--report-only --baseline ...` to review progress on exactly "the parts you worked on" without full-report noise. Fully composes with existing scoping, is deterministic, and never affects the "indeterminate" guarantee or exit-2 logic. Updated usage.md (detailed workflow + examples), getting-started.md, spec.md, and root README. (See plan.md in the session artifacts for the full design.)
+- `--function NAME` (repeatable) on `scan`: exact function-name filter after analysis and coverage mapping. Summaries, recommendations, threshold evaluation, and exit 2 apply only to selected rows. Duplicate names across files return all matches unless narrowed with explicit source paths. No match → exit 1.
+- `--coverage-report PATH`: one-off override for the configured coverage report (absolute or repo-relative). Does not mutate `.crap4code.toml`. Missing explicit path → exit 1 (no fallback to config).
+- `--coverage-format {lcov,coverage.py-xml}`: override configured format with content sniff validation when used with explicit overrides.
+- `--format compact`: one plain line per function (`file::function | lines=... | CX=... | coverage=... | CRAP=... | risk=...`) for shell-friendly targeted remediation after external coverage regeneration.
+- `format_report_compact()` in `core/report.py`; strict coverage loading via `CoverageReportError` in `core/coverage.py`.
+- Optional `run_metadata` keys: `coverage_report_override`, `coverage_format_override`, `function_filter`.
+- Checked-in `tests/fixtures/python/coverage.xml` paired with `tests/fixtures/python/sample.py`.
+- Expanded CLI tests for targeted workflow, rust_repo compact smoke, and `--limit` positive validation.
+
+### Changed
+- `--format` choices now include `compact`; `--limit` rejects non-positive values.
+- Documented targeted remediation workflow in `README.md`, `docs/user-guide/usage.md`, `spec.md`, and `docs/contracts.md`.
+
+### Added (carried from prior unreleased work, now released in 0.5.0)
+- `--baseline <prior.json>` flag on `scan`. Loads a previous `--format json` report, filters the result set to only functions that existed in it, attaches `baseline_crap_score` / `baseline_coverage_percent` snapshots on the matching rows, and records `baseline_path` + `baseline_matched` in the summary / run_metadata. Rich TUI and self-contained HTML render deltas in the CRAP column. Composes with explicit paths, `--changed`, `--report-only`, and the new targeted flags.
 
 ## [0.4.0] - 2026-06-08
 
@@ -62,9 +78,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 See also the checked-in sample projects under `tests/sample_projects/` (still used for release-readiness) and `tests/test_sample_projects.py`.
 
 **Prior release (v0.3.0)**: Initial multi-language CRAP v1 implementation (Python/JS/TS/Rust analyzers, coverage mapping for XML+LCOV, CRAP scoring + deterministic recs, CLI with `--changed`/`--report-only`/`--format json`, repo-local TOML config, CI/release scaffolding, sample projects). The 0.4.0 release focuses on making that foundation pleasant and reliable on Windows and across shells/CI/install scenarios.
-
-## [Unreleased]
-(Use this section for post-0.4.0 work. Move items here before cutting the next release.)
 
 ---
 

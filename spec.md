@@ -28,18 +28,24 @@ Global:
 Commands:
 
 - `init [--force] [--config <path>]`
-- `scan [paths...] [--lang <lang>] [--changed] [--base-ref <git-ref>] [--format {table,json,html}] [--threshold <float>] [--config <path>] [--report-only] [--baseline <prior.json>] [--limit N] [--full] [--output FILE]`
+- `scan [paths...] [--lang <lang>] [--changed] [--base-ref <git-ref>] [--format {table,json,html,compact}] [--threshold <float>] [--config <path>] [--report-only] [--baseline <prior.json>] [--function NAME] [--coverage-report PATH] [--coverage-format {lcov,coverage.py-xml}] [--limit N] [--full] [--output FILE]`
 
 Supported flags:
 
-- `--lang <python|javascript|typescript|rust>` (can be repeated; default: all available)
+- `--lang <python|javascript|typescript|rust>` (single value; default: all enabled languages)
 - `--changed` (intersect discovered files with git diff vs base)
 - `--base-ref <git-ref>`
-- `--format {table,json}`
+- `--format {table,json,html,compact}`
 - `--threshold <float>`
 - `--config <path>`
 - `--report-only`
 - `--baseline <prior.json>` — filter output + attach deltas for exactly the functions present in a previous JSON report (the "just the parts you worked on vs baseline" workflow). See docs/user-guide/usage.md.
+- `--function NAME` (repeatable) — exact `function_name` match after analysis and coverage mapping. When the same name appears in multiple files, all matches are included; pass an explicit source path to disambiguate. Exit 1 when no match. Summaries, recommendations, threshold, and exit 2 apply only to selected rows.
+- `--coverage-report PATH` — override configured report path for this scan (absolute or repo-relative). Does not mutate TOML. Missing explicit path → exit 1 (no fallback to config).
+- `--coverage-format {lcov,coverage.py-xml}` — override configured format; validated against the report file when combined with `--coverage-report` or when overriding format alone.
+- `--limit N` — positive integer; rich table truncation only (ignored for compact).
+- `--full` — show all functions in rich table.
+- `--output FILE` — write report; `.html`/`.json` infer format when `--format` omitted.
 
 ## Coverage Contract
 
@@ -72,6 +78,14 @@ Each function row includes:
 
 Human table is risk-sorted (high risk first). Columns are stable. `coverage` and `crap` show `N/A` + warning when `indeterminate`.
 
+## Output Contract (compact)
+
+One plain line per function (no Rich, summary, recommendations, or ANSI on stdout):
+
+`file::function | lines=START-END | CX=N | coverage=N.N% | CRAP=N.NN | risk=LEVEL`
+
+Use `coverage=N/A` and `CRAP=N/A` when indeterminate. Warnings remain on stderr.
+
 ## Output Contract (json)
 
 Stable top-level keys for agents:
@@ -84,8 +98,8 @@ Stable top-level keys for agents:
 
 Exit codes:
 
-- 0: success (all measured CRAP <= threshold or no measured functions)
-- 1: CLI error or coverage command failed
-- 2: one or more *measured* functions exceeded threshold
+- 0: success (all measured CRAP <= threshold in the filtered result set, or no measured functions)
+- 1: CLI error, coverage command failed, `--function` no match, or invalid/missing explicit `--coverage-report` / format mismatch
+- 2: one or more *measured* functions in the filtered result set exceeded threshold
 
 See `src/crap4code/cli.py`, `core/report.py`, `core/models.py`, `core/recommendations.py`, `core/coverage.py`, and the language analyzers for the implementation.

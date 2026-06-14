@@ -1,0 +1,22 @@
+<?xml version="1.0" ?>
+<coverage>
+  <packages>
+    <package name="tests.fixtures.python">
+      <classes>
+        <class name="sample" filename="tests/fixtures/python/sample.py">
+          <lines>
+            <line number="1" hits="1"/>
+            <line number="2" hits="1"/>
+            <line number="3" hits="1"/>
+            <line number="4" hits="0"/>
+            <line number="5" hits="1"/>
+            <line number="8" hits="1"/>
+            <line number="9" hits="0"/>
+            <line number="10" hits="1"/>
+            <line number="11" hits="1"/>
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>
