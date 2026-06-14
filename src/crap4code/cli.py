@@ -77,7 +77,8 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["table", "json", "html"],
         help="Output format. 'table' (default) = rich colored TUI with summary panels + table. "
              "Long tables are truncated by default (see --limit / --full). "
-             "'json' for CI/agents. 'html' for a self-contained interactive browser report.",
+             "'json' for CI/agents. 'html' for a self-contained interactive browser report "
+             "(combine with --output/-o or shell redirection to save the file).",
     )
     scan.add_argument(
         "--threshold",
@@ -95,6 +96,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--full",
         action="store_true",
         help="Show the full table with all functions (overrides --limit). Useful when you want to capture everything.",
+    )
+    scan.add_argument(
+        "--output", "-o",
+        metavar="FILE",
+        help="Write the report to this file instead of printing to stdout. "
+             "Very useful for --format html (saves a nice .html file) or --format json. "
+             "For the rich 'table' format, a plain text version is written.",
     )
     scan.add_argument(
         "--config",
@@ -288,10 +296,35 @@ def _scan(args: argparse.Namespace) -> int:
         config_path=str(config.config_path) if config.config_path else None,
     )
 
+    # Handle file output (--output / -o) vs printing to the terminal.
+    # This makes --format html (and json) much more user-friendly.
+    # You can now do:  crap4code scan --format html -o report.html
+    if args.output:
+        out_path = Path(args.output)
+        if output_format == "json":
+            out_path.write_text(format_report_json(report), encoding="utf-8")
+            print(f"Wrote JSON report to {out_path}")
+        elif output_format == "html":
+            out_path.write_text(format_report_html(report), encoding="utf-8")
+            print(f"Wrote HTML report to {out_path}")
+            print("Open the file in any browser — it's a complete, self-contained HTML page "
+                  "with Tailwind styling, sortable/filterable table, and embedded JSON data.")
+        else:
+            # Rich 'table' to a file → write the plain-text version (no ANSI escape codes)
+            out_path.write_text(format_report(report), encoding="utf-8")
+            print(f"Wrote plain-text table report to {out_path}")
+
+        for warning in warnings:
+            print(f"warning: {warning}", file=sys.stderr)
+        return 2 if is_threshold_exceeded(report.functions, threshold) else 0
+
+    # No --output: normal terminal output
     if output_format == "json":
         print(format_report_json(report))
     elif output_format == "html":
-        # Self-contained HTML report. User typically redirects: crap4code scan --format html > report.html
+        # Self-contained HTML report.
+        # If you see raw HTML in your terminal, you probably forgot the redirection or --output.
+        # Recommended: use -o / --output or redirect:  ... --format html > report.html
         print(format_report_html(report))
     else:
         # The nice rich TUI experience (colored table, panels, risk highlighting, etc.)

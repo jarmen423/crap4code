@@ -64,7 +64,7 @@ Positional `paths...`:
 
 `--format {table,json,html}`:
 
-- `table` (default): the rich terminal TUI experience — colored risk levels, styled CRAP/coverage columns, summary panels, priority recommendations, and warnings rendered beautifully with the `rich` library. Looks great in any modern terminal (including Windows Terminal, iTerm, VS Code). Falls back gracefully to plain text if rich is unavailable.
+- `table` (default): the rich terminal TUI experience — colored risk levels, styled CRAP/coverage columns, summary panels, priority recommendations, and warnings rendered beautifully with the `rich` library. Looks great in any modern terminal (including Windows Terminal, iTerm, VS Code). Falls back gracefully to plain text if rich is unavailable. Long outputs are truncated by default (see `--limit` / `--full`).
 - `json`: stable, indented, sort_keys=True payload suitable for agents, jq, or CI assertions. Top-level keys: `summary`, `functions`, `recommendations`, `run_metadata`, `warnings`.
 - `html`: emits a single self-contained HTML file (Tailwind via CDN + vanilla JS). Perfect for sharing, archiving, or opening in a browser. Features:
   - Summary cards + risk breakdown visualization
@@ -74,11 +74,17 @@ Positional `paths...`:
   - "Download JSON" and "Print/Save PDF" buttons
   - Full report data embedded so the HTML is a complete artifact
 
-  Typical usage:
-  ```bash
+  **Recommended ways to save it** (instead of letting it print to your terminal):
+  ```powershell
+  # Best: use --output (or -o)
+  crap4code scan --format html -o crap4code-report.html
+
+  # Or classic shell redirection
   crap4code scan --format html > crap4code-report.html
-  # then open crap4code-report.html in your browser
   ```
+  Then open the `.html` file in any browser. On a remote machine, write the file on the remote side then download it (e.g. with `scp`).
+
+  The tool will print a helpful message when it writes the file via `--output`.
 
 `--threshold <float>`:
 
