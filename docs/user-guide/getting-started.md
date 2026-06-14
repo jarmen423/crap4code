@@ -68,6 +68,7 @@ Cross-platform note: The same `python -m pip ...` and `crap4code` (or `python -m
    crap4code scan --report-only
    crap4code scan --lang python --format json
    crap4code scan --changed --base-ref origin/main   # only files touched vs. base
+   crap4code scan --changed --report-only --baseline baseline.json  # progress vs prior full scan on just the parts you edited
    ```
 
    Output is a risk-sorted table (or stable JSON). Warnings (if any) go to stderr after the main output. Exit code 2 means at least one *measured* CRAP exceeded the threshold.

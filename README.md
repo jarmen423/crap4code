@@ -60,6 +60,7 @@ Scan with table output (human readable, sorted by risk):
 crap4code scan
 crap4code scan --lang python
 crap4code scan --lang typescript --changed --base-ref origin/main
+crap4code scan --changed --report-only --baseline baseline.json   # progress on just the functions from a prior full scan
 ```
 
 Scan with machine-readable JSON (for agents / CI):

@@ -31,6 +31,16 @@ class FunctionMetrics:
         risk_level: Coarse severity bucket used for sorting and recommendations.
         recommended_actions: Ordered deterministic actions an agent or human
             should consider next.
+        baseline_crap_score / baseline_coverage_percent: Snapshots copied from a
+            prior report supplied via --baseline. Used to render deltas and
+            "progress vs baseline" for the subset of functions that existed in
+            that baseline (i.e. the functions the user previously decided were
+            worth tracking while fixing high-CRAP code). Only populated for
+            matched rows when --baseline is used; otherwise remain None.
+            The current crap_score / coverage_percent are always the fresh
+            values from this scan. Matching key is (file_path, container,
+            function_name) — line numbers are ignored because source edits
+            shift them. See report.py:build_report and cli.py for the flow.
     """
 
     language: str
@@ -46,6 +56,14 @@ class FunctionMetrics:
     risk_level: str = "low"
     recommended_actions: list[str] = field(default_factory=list)
 
+    # Populated only when the scan was invoked with --baseline pointing at a prior
+    # JSON report. These allow deterministic "progress vs baseline" views for the
+    # exact functions that were present in the baseline (the "parts you worked on"
+    # during a high-CRAP fix loop). See cli.py:_scan and report.py:build_report.
+    # Values are snapshots from the baseline; current_* fields are always fresh.
+    baseline_crap_score: float | None = None
+    baseline_coverage_percent: float | None = None
+
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation of the function result."""
 
@@ -54,7 +72,14 @@ class FunctionMetrics:
 
 @dataclass(slots=True)
 class ScanSummary:
-    """Aggregated counts that help operators understand a scan at a glance."""
+    """Aggregated counts that help operators understand a scan at a glance.
+
+    When --baseline is used, baseline_path and baseline_matched let callers
+    (and the renderers) know this was a focused "progress vs prior baseline"
+    run over exactly the functions that were present in the supplied report.
+    baseline_matched counts how many of the *current* result rows had a match
+    in the baseline (after any --changed or explicit paths scoping).
+    """
 
     scanned_files: int
     functions_found: int
@@ -64,6 +89,11 @@ class ScanSummary:
     base_ref: str | None
     by_language: dict[str, int]
     risk_counts: dict[str, int]
+
+    # --baseline support (see FunctionMetrics baseline_* fields and
+    # report.py:build_report for how these are populated).
+    baseline_path: str | None = None
+    baseline_matched: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable summary payload."""

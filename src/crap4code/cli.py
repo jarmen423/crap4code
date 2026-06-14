@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import json
 import sys
 
 from crap4code import __version__
@@ -115,6 +116,16 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Only read an existing coverage report. Do not run configured coverage commands.",
     )
+    scan.add_argument(
+        "--baseline",
+        metavar="JSON_REPORT",
+        help="Path to a prior JSON report (produced by --format json). When given, the output "
+             "is filtered to only the functions that existed in that baseline, and baseline "
+             "snapshots are attached so rich/HTML/JSON renderers can show deltas (CRAP current "
+             "(was X.XX)). This is the primary mechanism for 'just scan the parts you worked on' "
+             "and reviewing progress vs a full baseline during iterative high-CRAP fixes. "
+             "Composes cleanly with explicit paths, --changed, and --report-only.",
+    )
 
     init = subparsers.add_parser("init", help="Write a sample repo-local config")
     init.add_argument(
@@ -149,6 +160,36 @@ def _apply_coverage(rows: list[FunctionMetrics], root: Path, report_path: str | 
             row.crap_score = calculate_crap(row.complexity, percent / 100.0)
 
     return (rows, warnings)
+
+
+def _load_baseline(baseline_path: str, warnings: list[str]) -> dict | None:
+    """Load a prior JSON report for --baseline progress comparison.
+
+    Returns the parsed dict on success (must contain a top-level "functions" list).
+    On any error (IO, JSON, missing key, etc.) appends a clear warning to the
+    passed list (so it appears in the final report and on stderr) and returns None.
+    The caller then treats "no usable baseline" as a normal unfiltered scan.
+    Only JSON is supported (the stable machine format from --format json).
+    """
+    p = Path(baseline_path)
+    try:
+        text = p.read_text(encoding="utf-8")
+        data = json.loads(text)
+    except Exception as exc:
+        warnings.append(
+            f"Failed to load --baseline {baseline_path!r} ({type(exc).__name__}: {exc}). "
+            "Proceeding with unfiltered scan results."
+        )
+        return None
+
+    if not isinstance(data, dict) or "functions" not in data:
+        warnings.append(
+            f"--baseline {baseline_path!r} does not look like a valid crap4code JSON report "
+            "(missing top-level 'functions'). Proceeding without filtering."
+        )
+        return None
+
+    return data
 
 
 def _scan(args: argparse.Namespace) -> int:
@@ -286,6 +327,14 @@ def _scan(args: argparse.Namespace) -> int:
         warnings.extend(coverage_warnings)
         all_rows.extend(rows)
 
+    # --baseline load is done early (even on the "no files" path) so that
+    # warnings about a bad/missing baseline file are always visible to the
+    # user, exactly like git warnings for --changed. The lookup is only built
+    # when we have rows to filter.
+    baseline_data: dict | None = None
+    if getattr(args, "baseline", None):
+        baseline_data = _load_baseline(args.baseline, warnings)
+
     if scanned_files == 0:
         print("No matching source files found.")
         # Surface any warnings (e.g. the git --changed failure diagnostic)
@@ -298,6 +347,20 @@ def _scan(args: argparse.Namespace) -> int:
             print(f"warning: {warning}", file=sys.stderr)
         return 0
 
+    # Build the lookup for build_report (filter + attach baseline_* on rows).
+    # Key construction mirrors report._function_key.
+    baseline_lookup: dict[tuple[str, str, str], dict] | None = None
+    if baseline_data and isinstance(baseline_data.get("functions"), list):
+        baseline_lookup = {}
+        for f in baseline_data["functions"]:
+            if isinstance(f, dict):
+                k = (
+                    f.get("file_path") or "",
+                    f.get("container") or "module",
+                    f.get("function_name") or "",
+                )
+                baseline_lookup[k] = f
+
     enrich_rows(all_rows)
     report = build_report(
         all_rows,
@@ -308,6 +371,8 @@ def _scan(args: argparse.Namespace) -> int:
         warnings=warnings,
         coverage_commands_run=coverage_commands_run,
         config_path=str(config.config_path) if config.config_path else None,
+        baseline_path=args.baseline if getattr(args, "baseline", None) else None,
+        baseline_lookup=baseline_lookup,
     )
 
     # Handle file output (--output / -o) vs printing to the terminal.

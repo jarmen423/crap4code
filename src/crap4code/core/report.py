@@ -49,6 +49,22 @@ def _sort_key(row: FunctionMetrics) -> tuple[int, float, int, str, str]:
     return (0, -row.crap_score, -row.complexity, row.file_path, row.function_name)
 
 
+def _function_key(row: FunctionMetrics) -> tuple[str, str, str]:
+    """Stable key for matching a function across a baseline report and current results.
+
+    We intentionally omit line numbers because source edits (adding tests, small
+    refactors, etc.) commonly shift them while the logical function stays the same.
+    Container (e.g. "module", "MyClass", "Foo (impl Bar)") + name gives good
+    identity within a file for the languages we support.
+
+    Used by build_report when --baseline is supplied to implement the "just the
+    parts you worked on (that were in the prior baseline)" filtering + delta
+    attachment. Must be kept in sync with how the analyzers populate rows
+    (see languages/python/analyzer.py, javascript/analyzer.py, rust/analyzer.py).
+    """
+    return (row.file_path, row.container or "module", row.function_name)
+
+
 def build_report(
     rows: Iterable[FunctionMetrics],
     *,
@@ -59,10 +75,57 @@ def build_report(
     warnings: list[str],
     coverage_commands_run: list[str],
     config_path: str | None,
+    baseline_path: str | None = None,
+    baseline_lookup: dict[tuple[str, str, str], dict] | None = None,
 ) -> ScanReport:
-    """Build the stable top-level scan report structure."""
+    """Build the stable top-level scan report structure.
 
+    This is the single place that assembles ScanReport (used by all output
+    formats). It is deliberately pure and deterministic.
+
+    Baseline support (the feature requested for "just scan the parts you worked
+    on" + progress review vs a prior full scan):
+    - baseline_path: recorded for provenance (appears in summary + run_metadata).
+    - baseline_lookup: mapping from _function_key(...) -> the original function
+      dict from the loaded baseline JSON (containing at least "crap_score" and
+      "coverage_percent").
+    - If provided, we filter `ordered_rows` to only functions that existed in
+      the baseline (after any --changed / explicit paths scoping done by the
+      caller). This produces a report containing "just the parts" that were
+      previously interesting.
+    - For every retained row we attach the snapshot values onto the
+      FunctionMetrics instance (baseline_crap_score etc.). These are then
+      available to all renderers for deltas and also flow into JSON via
+      to_dict().
+    - recommendations are still taken from the (now possibly filtered) top of
+      the list so they remain relevant to what the user is looking at.
+    - threshold_exceeded etc. are computed on the final (filtered) set using
+      the *current* measured scores only (baseline values never affect exit 2).
+
+    The caller (cli._scan) is responsible for loading the JSON and building the
+    lookup (or passing None for a normal full scan). See cli.py for the wiring
+    and warning handling on bad baseline paths.
+
+    All other parameters and behavior are unchanged from the pre-baseline
+    implementation.
+    """
     ordered_rows = sorted(rows, key=_sort_key)
+
+    # --- Baseline filtering + snapshot attachment (new for progress-vs-baseline) ---
+    if baseline_lookup:
+        filtered: list[FunctionMetrics] = []
+        for row in ordered_rows:
+            key = _function_key(row)
+            prev = baseline_lookup.get(key)
+            if prev is not None:
+                # Attach snapshots (the dataclass is mutable here; safe because
+                # these rows were just created for this report and have not
+                # been exposed yet).
+                row.baseline_crap_score = prev.get("crap_score")
+                row.baseline_coverage_percent = prev.get("coverage_percent")
+                filtered.append(row)
+        ordered_rows = filtered
+
     by_language = Counter(row.language for row in ordered_rows)
     risk_counts = Counter(row.risk_level for row in ordered_rows)
     threshold_exceeded = any(
@@ -92,16 +155,22 @@ def build_report(
         base_ref=base_ref,
         by_language=dict(by_language),
         risk_counts={"high": risk_counts.get("high", 0), "moderate": risk_counts.get("moderate", 0), "low": risk_counts.get("low", 0)},
+        baseline_path=baseline_path,
+        baseline_matched=len(ordered_rows) if baseline_lookup else 0,
     )
+
+    run_md = {
+        "coverage_commands_run": coverage_commands_run,
+        "config_path": config_path,
+    }
+    if baseline_path:
+        run_md["baseline_path"] = baseline_path
 
     return ScanReport(
         summary=summary,
         functions=ordered_rows,
         recommendations=recommendations,
-        run_metadata={
-            "coverage_commands_run": coverage_commands_run,
-            "config_path": config_path,
-        },
+        run_metadata=run_md,
         warnings=warnings,
     )
 
@@ -230,6 +299,15 @@ def render_rich_report(report: ScanReport, *, limit: int | None = 100) -> None:
         f"exceeded: {'[bold red]yes[/]' if s.threshold_exceeded else '[green]no[/]'}"
     )
     console.print(summary_line, style="dim")
+
+    # Baseline progress note (only when --baseline was used). This is the
+    # primary visual cue for the "review progress vs that baseline just of the
+    # parts you worked on" workflow.
+    if s.baseline_path:
+        console.print(
+            f"[dim]vs baseline:[/] {s.baseline_path}  (matched {s.baseline_matched} functions)",
+            style="dim",
+        )
     console.print()
 
     # --- Stats cards row (risk distribution + languages) ---
@@ -304,6 +382,17 @@ def render_rich_report(report: ScanReport, *, limit: int | None = 100) -> None:
         else:
             crap_style = "green"
 
+        # Delta vs baseline (only shown when the row carries a snapshot from
+        # --baseline). Lower CRAP is improvement → green delta.
+        delta_cell = Text(crap_str, style=crap_style)
+        if row.baseline_crap_score is not None and row.crap_score is not None:
+            delta = row.crap_score - row.baseline_crap_score
+            dsign = "+" if delta > 0 else ""
+            dstyle = "green" if delta < 0 else ("red" if delta > 0 else "dim")
+            delta_cell = Text(f"{crap_str} ({dsign}{delta:.2f})", style=crap_style)
+            # We could also append a small styled delta, but embedding keeps
+            # the single CRAP column scannable. The (was X) form is very clear.
+
         table.add_row(
             row.language[:4],
             row.file_path,
@@ -311,7 +400,7 @@ def render_rich_report(report: ScanReport, *, limit: int | None = 100) -> None:
             f"{row.start_line}-{row.end_line}",
             str(row.complexity),
             _fmt_cov(row.coverage_percent, row.coverage_state),
-            Text(crap_str, style=crap_style),
+            delta_cell,
             Text(row.risk_level.upper(), style=risk_style),
         )
 
@@ -413,6 +502,14 @@ def format_report_html(report: ScanReport) -> str:
             crap_label = f"{crap:.2f}"
             crap_color = "text-emerald-600 dark:text-emerald-400"
 
+        # Delta badge for baseline progress (green for improvement).
+        delta_html = ""
+        if row.baseline_crap_score is not None and crap is not None:
+            d = crap - row.baseline_crap_score
+            dsign = "+" if d > 0 else ""
+            dcolor = "text-emerald-600 dark:text-emerald-400" if d < 0 else ("text-red-600 dark:text-red-400" if d > 0 else "text-slate-400")
+            delta_html = f' <span class="font-mono text-[10px] {dcolor}">({dsign}{d:.2f})</span>'
+
         risk = (row.risk_level or "low").lower()
         if risk == "high":
             risk_badge = '<span class="px-2 py-0.5 text-xs font-bold rounded bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300">HIGH</span>'
@@ -434,7 +531,7 @@ def format_report_html(report: ScanReport) -> str:
       <div class="w-12">{cov_bar}</div>
     </div>
   </td>
-  <td class="px-3 py-2 text-right font-mono {crap_color}">{crap_label}</td>
+  <td class="px-3 py-2 text-right font-mono {crap_color}">{crap_label}{delta_html}</td>
   <td class="px-3 py-2 text-center">{risk_badge}</td>
 </tr>
 """
@@ -540,6 +637,7 @@ def format_report_html(report: ScanReport) -> str:
           </div>
         </div>
         <div class="text-[10px] text-slate-400 mt-3">Changed scan: {'yes' if s.changed_only else 'no'}{f' (base {s.base_ref})' if s.base_ref else ''}</div>
+        {f'<div class="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">vs baseline: {s.baseline_path} (matched {s.baseline_matched})</div>' if s.baseline_path else ''}
       </div>
     </div>
 

@@ -193,6 +193,118 @@ class CliTests(unittest.TestCase):
         self.assertIn("warning: ", err_text2)
         self.assertIn("git not available or not a repository", err_text2)
 
+    def test_baseline_filters_to_previous_functions_and_attaches_snapshots(self) -> None:
+        """Exercise --baseline end-to-end on the CLI.
+
+        - Creates a tiny hermetic python project (single .py with two functions).
+        - Runs a --report-only scan (no coverage needed; we only care about
+          function discovery + the filtering/delta attachment contract).
+        - Builds a synthetic baseline JSON containing only *one* of the two
+          functions (simulating "the parts that were risky in the prior full scan").
+        - Re-runs the scan with --baseline pointing at that file.
+        - Asserts:
+          * functions_found in the JSON is 1 (filtered)
+          * the single function carries baseline_crap_score / baseline_coverage_percent
+            matching what we put in the synthetic baseline
+          * baseline_path and baseline_matched appear in summary
+          * A bad --baseline path produces a warning but still succeeds (unfiltered
+            for the scope, i.e. both functions in this case).
+        This directly covers the "just scan the parts you worked on vs that baseline"
+        user workflow without relying on sample projects or real coverage artifacts.
+        """
+        import json as _json  # local to avoid shadowing
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            src = root / "src"
+            src.mkdir()
+            py = src / "mod.py"
+            py.write_text(
+                "def foo():\n    if True:\n        pass\n\ndef bar():\n    return 1\n",
+                encoding="utf-8",
+            )
+
+            # First: a normal (unfiltered) run to see both functions exist.
+            stdout_full = io.StringIO()
+            stderr_full = io.StringIO()
+            with contextlib.redirect_stdout(stdout_full), contextlib.redirect_stderr(stderr_full):
+                code_full = main(["scan", str(py), "--report-only", "--format", "json", "--lang", "python"])
+            self.assertEqual(code_full, 0)
+            full_report = _json.loads(stdout_full.getvalue())
+            self.assertEqual(full_report["summary"]["functions_found"], 2)
+
+            # Pick the first function that the real analyzer produced for this tiny tree
+            # so the synthetic baseline key will definitely match (avoids any
+            # repo-relative path surprises between discovery and the test's baseline).
+            real_first = full_report["functions"][0]
+            baseline_path = root / "baseline.json"
+            baseline = {
+                "summary": {"functions_found": 1},
+                "functions": [
+                    {
+                        "file_path": real_first["file_path"],
+                        "container": real_first.get("container", "module"),
+                        "function_name": real_first["function_name"],
+                        "crap_score": 12.34,
+                        "coverage_percent": 55.5,
+                    }
+                ],
+            }
+            baseline_path.write_text(_json.dumps(baseline), encoding="utf-8")
+
+            # Focused run with --baseline.
+            stdout_f = io.StringIO()
+            stderr_f = io.StringIO()
+            with contextlib.redirect_stdout(stdout_f), contextlib.redirect_stderr(stderr_f):
+                code_f = main(
+                    [
+                        "scan",
+                        str(py),
+                        "--report-only",
+                        "--format",
+                        "json",
+                        "--lang",
+                        "python",
+                        "--baseline",
+                        str(baseline_path),
+                    ]
+                )
+            self.assertEqual(code_f, 0)
+            focused = _json.loads(stdout_f.getvalue())
+            self.assertEqual(focused["summary"]["functions_found"], 1)
+            self.assertEqual(focused["summary"]["baseline_matched"], 1)
+            self.assertEqual(focused["summary"]["baseline_path"], str(baseline_path))
+            fn = focused["functions"][0]
+            self.assertEqual(fn["function_name"], "foo")
+            self.assertAlmostEqual(fn.get("baseline_crap_score"), 12.34)
+            self.assertAlmostEqual(fn.get("baseline_coverage_percent"), 55.5)
+
+            # Bad baseline path: warning emitted, scan still succeeds with the
+            # unfiltered scope for the supplied paths (both functions).
+            bad_baseline = root / "does-not-exist.json"
+            stdout_bad = io.StringIO()
+            stderr_bad = io.StringIO()
+            with contextlib.redirect_stdout(stdout_bad), contextlib.redirect_stderr(stderr_bad):
+                code_bad = main(
+                    [
+                        "scan",
+                        str(py),
+                        "--report-only",
+                        "--format",
+                        "json",
+                        "--lang",
+                        "python",
+                        "--baseline",
+                        str(bad_baseline),
+                    ]
+                )
+            self.assertEqual(code_bad, 0)
+            bad_report = _json.loads(stdout_bad.getvalue())
+            self.assertEqual(bad_report["summary"]["functions_found"], 2)  # not filtered
+            err_bad = stderr_bad.getvalue()
+            self.assertIn("warning:", err_bad)
+            self.assertIn("Failed to load --baseline", err_bad)
+
 
 if __name__ == "__main__":
     unittest.main()

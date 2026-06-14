@@ -193,6 +193,45 @@ While you are:
 
 ...always prefer `--report-only`. It completely bypasses the cleanup + subprocess step while still giving you full mapping, CRAP, risk, and recs from whatever report artifact is already on disk.
 
+## Reviewing progress vs a baseline ("just the parts you worked on")
+
+When you have a high-CRAP function (or several) and are in the middle of the fix loop, you usually do not want a fresh full scan of the entire tree every time. You already captured a baseline once:
+
+```powershell
+crap4code scan --format json -o baseline.json
+# (or with -o report.html for the beautiful self-contained view)
+```
+
+Then, as you edit:
+
+- Use explicit positional paths for the exact file(s) you touched, **or** let `--changed` auto-detect your unstaged/staged/untracked work.
+- Add `--baseline baseline.json` (and almost always `--report-only`).
+- The resulting report (table / JSON / HTML) will contain *only the functions that were present in the baseline* (filtered after your scoping), with the current fresh metrics plus the old snapshot attached.
+
+Examples:
+
+```powershell
+# Only the file(s) you are actively editing right now
+crap4code scan src/risky.py src/another.py --report-only --baseline baseline.json
+
+# Let git tell you what you worked on (local changes)
+crap4code scan --changed --report-only --baseline baseline.json --format table
+
+# Capture a nice HTML progress artifact for the focused set
+crap4code scan --changed --report-only --baseline baseline.json --format html -o progress.html
+```
+
+What you get:
+- Summary line + `baseline_path` / `baseline_matched` (visible in JSON, rich header note, HTML stats card).
+- In the rich TUI and the interactive HTML: CRAP column shows `current (Δ)` with green for improvement (lower is better).
+- The `functions` list (and therefore the table) is the filtered "just these" set — no noise from unrelated functions even if they live in the same files.
+- All the normal recommendations, risk colors, truncation (`--limit` / `--full`), and exit-code behavior continue to apply to the focused set.
+- JSON contains `baseline_crap_score` / `baseline_coverage_percent` on every matched row so agents or jq can compute anything they need.
+
+The filter key is `(file_path, container, function_name)`. Small edits inside a function (or adding tests) will still match it. Renaming the function will make it disappear from the focused view until you re-capture a baseline.
+
+This composes with everything else (`--lang`, explicit paths, `--threshold`, `--output`, etc.). Without `--baseline` the tool behaves exactly as it did before (full scan of whatever scope you asked for).
+
 ## Relation to Sample Projects
 
 The `tests/sample_projects/` trees (python_repo, javascript_repo, rust_repo, mixed_repo) are intentionally small checked-in fixtures containing source + pre-generated coverage artifacts. They allow release verification (`tests/test_sample_projects.py`) and end-to-end CLI tests to run without requiring every language toolchain + coverage generator on every CI matrix entry. They are excellent for experimenting locally too: `cd tests/sample_projects/rust_repo && crap4code scan --report-only`.

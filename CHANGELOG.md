@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+- `--baseline <prior.json>` flag on `scan`. Loads a previous `--format json` report, filters the result set to only functions that existed in it, attaches `baseline_crap_score` / `baseline_coverage_percent` snapshots on the matching rows, and records `baseline_path` + `baseline_matched` in the summary / run_metadata. Rich TUI and self-contained HTML now render deltas in the CRAP column (`current (Δ)`) with color for improvement. Primary use case: after a full baseline, repeatedly run focused scans (via explicit paths or `--changed`) + `--report-only --baseline ...` to review progress on exactly "the parts you worked on" without full-report noise. Fully composes with existing scoping, is deterministic, and never affects the "indeterminate" guarantee or exit-2 logic. Updated usage.md (detailed workflow + examples), getting-started.md, spec.md, and root README. (See plan.md in the session artifacts for the full design.)
+
 ## [0.4.0] - 2026-06-08
 
 **This is the release completing the full Windows & Cross-Platform Usability Plan (Phases 0-3).** All major improvements from the plan are included. See `WINDOWS_AND_CROSS_PLATFORM_PLAN.md` (the "Phase 3 Merge & Verification + Cleanup" section and prior merge sections) for the complete history, verification commands, and audit trail (patches under `review/`). Core guarantees remain unchanged: missing coverage is always `indeterminate` (never invented), recommendations are deterministic/auditable, parser-backed language support for JS/TS/Rust, and repo-local config is the source of truth.

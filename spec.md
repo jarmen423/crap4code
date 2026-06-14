@@ -28,7 +28,7 @@ Global:
 Commands:
 
 - `init [--force] [--config <path>]`
-- `scan [paths...] [--lang <lang>] [--changed] [--base-ref <git-ref>] [--format {table,json}] [--threshold <float>] [--config <path>] [--report-only]`
+- `scan [paths...] [--lang <lang>] [--changed] [--base-ref <git-ref>] [--format {table,json,html}] [--threshold <float>] [--config <path>] [--report-only] [--baseline <prior.json>] [--limit N] [--full] [--output FILE]`
 
 Supported flags:
 
@@ -39,6 +39,7 @@ Supported flags:
 - `--threshold <float>`
 - `--config <path>`
 - `--report-only`
+- `--baseline <prior.json>` — filter output + attach deltas for exactly the functions present in a previous JSON report (the "just the parts you worked on vs baseline" workflow). See docs/user-guide/usage.md.
 
 ## Coverage Contract
 
@@ -65,6 +66,7 @@ Each function row includes:
 - `crap_score`
 - `risk_level`
 - `recommended_actions`
+- (optional, only with `--baseline`) `baseline_crap_score`, `baseline_coverage_percent`
 
 ## Output Contract (table)
 
