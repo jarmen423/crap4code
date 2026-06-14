@@ -1,4 +1,5 @@
 # crap4code
+<img width="1737" height="818" alt="image" src="https://github.com/user-attachments/assets/642c28ab-50f2-4d6f-a94c-6bb55c3f0607" />
 
 `crap4code` is a Python-hosted CRAP analyzer for Python, JavaScript/TypeScript, and Rust.
 
