@@ -1,0 +1,79 @@
+# Repo-local configuration for crap4code.
+# Keep commands and paths explicit so both humans and coding agents can verify
+# exactly how coverage is generated for each language.
+#
+# IMPORTANT: COVERAGE COMMAND SHELL MODEL (cross-platform reality)
+# -----------------------------------------------------------
+# If a language section has a "coverage_command", the EXACT string value
+# is passed to subprocess.run(..., shell=True, cwd=root, env=os.environ.copy()).
+#
+# - On Windows (os.name == "nt"): this ALWAYS uses cmd.exe (the value of
+#   the ComSpec environment variable), *regardless* of whether you launched
+#   crap4code from PowerShell (pwsh), Git Bash, WSL, or a VS Code terminal.
+# - On POSIX (Linux/macOS): this uses the platform default shell (typically
+#   /bin/sh via the system's popen / subprocess implementation).
+#
+# This is the deliberate v1 design (keeps the contract simple: a single
+# string the user can copy-paste and audit). It is NOT your interactive
+# shell's syntax or quoting rules.
+#
+# PRACTICAL GUIDANCE:
+# - Prefer "python -m ..." forms (as shown below). This uses the Python
+#   that is running crap4code and respects the current venv / PATH.
+# - "&&" chains work under cmd.exe (and sh). The sample below relies on this.
+# - If you need PowerShell-specific features, wrap explicitly:
+#     coverage_command = "pwsh -Command 'python -m coverage run ... ; python -m ...'"
+# - For cmd.exe-specific needs you can be explicit: "cmd /c \"...\""
+# - Quoting/escaping must be valid for cmd.exe (Windows) or sh (POSIX).
+# - The env is a copy of whatever environment crap4code itself was launched
+#   with. If you run crap4code from a desktop shortcut, scheduled task,
+#   or CI step that has a different PATH/venv, coverage will see that env.
+#
+# SAFETY: Use \"--report-only\" (CLI flag) to read an existing report
+# without executing any coverage_command. This is recommended while you
+# are learning the tool or debugging config on Windows.
+#
+# See also:
+# - WINDOWS_AND_CROSS_PLATFORM_PLAN.md (sections on S1/S2, Doc1/Doc2)
+# - README.md "Windows and Cross-Platform Notes" section
+# - The run_coverage_command implementation in core/coverage.py
+
+[scan]
+default_paths = ["src"]
+format = "table"
+threshold = 8.0
+
+[python]
+enabled = true
+paths = ["src", "tests"]
+# coverage_command is executed via the platform default shell (cmd.exe on
+# Windows, /bin/sh-equivalent on POSIX). See the header comments above.
+coverage_command = "python -m pytest --cov=src --cov-report=xml:coverage.xml --cov-report=term-missing -q && python -m coverage xml -o coverage.xml"
+coverage_report = "coverage.xml"
+coverage_format = "coverage.py-xml"
+stale_artifacts = [".coverage", "coverage.xml", "htmlcov"]
+
+[javascript]
+enabled = true
+paths = ["src"]
+# Many JS/TS projects produce lcov as part of their normal test/CI script.
+# Prefer running your project's own coverage step once, then invoke
+# crap4code with --report-only to avoid duplicate work / side effects.
+coverage_report = "coverage/lcov.info"
+coverage_format = "lcov"
+stale_artifacts = []
+
+[typescript]
+enabled = true
+paths = ["src"]
+coverage_report = "coverage/lcov.info"
+coverage_format = "lcov"
+stale_artifacts = []
+
+[rust]
+enabled = true
+paths = ["src"]
+# Rust projects commonly use cargo-tarpaulin or llvm-cov producing lcov.
+coverage_report = "coverage/lcov.info"
+coverage_format = "lcov"
+stale_artifacts = []

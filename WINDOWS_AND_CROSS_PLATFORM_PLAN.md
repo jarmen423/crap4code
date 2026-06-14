@@ -526,14 +526,17 @@ $tmpv = Join-Path $env:TEMP 'phase3-minimal-verify'; mkdir $tmpv; cd $tmpv; pyth
 ```
 All Windows/cross-platform Phase 3 behaviors confirmed (pytest no-env, CI steps would cover case+minimal+E2 on matrix, minimal sim passes registry/scan/graceful, case test green, non-git warn, --version, init).
 
-**Final green status**: Full test suite green post-landing. Manual commands (including the new DX "just works" and minimal sim) succeed with expected output/behavior. Main tree left on clean commit on the merge branch (no breakage to original main or prior phases). review/ now has the two new phase3 audit patches.
+**Final green status**: Full test suite green post-landing. Manual commands (including the new DX "just works" and minimal sim) succeed with expected output/behavior. Main tree left on clean commit on the merge branch (no breakage to original main or prior phases). review/ patches were generated (land-phase3-*.patch etc.) during coordinator reconciliation for full audit trail of the worktree diffs.
 
 **Cleanup (2026-06-08)**:
 - Confirmed on branch `merge/phase3-land-and-verify`.
 - Generated + preserved patches: review/land-phase3-ci-019ea891-21c8.patch , review/land-phase3-dx-019ea891-21d1.patch (plus prior ones).
 - Central todo list updated via todo_write: phase3-ci and phase3-dx marked completed (final state has no pending).
 - Cleaned the *new* temp worktrees for phase3 only: Remove-Item -Recurse -Force on the two UUID dirs under C:\Users\jfrie\AppData\Local\Temp\grok-subagent-worktrees . Parent left with 0 subdirs. (Prior phase0-1-2 wts were cleaned in earlier coordinator session; zero files touched in main D:\code tree.)
-- **How to consume the work (branch or merge to main)**: `git checkout main; git merge merge/phase3-land-and-verify` (fast-forward likely) or `git merge --no-ff ...` for explicit commit. Or cherry-pick / review the patches in review/. The merge branch contains all Phase 3 landed changes (CI yaml, conftest, pyproject comments, README/AGENTS, release-checklist, plan update + status) + the review/land-phase3-*.patch audit files.
+- **How to consume the work**: The changes landed via coordinator merges into main (see git history for the phase3 land + docs/navigation-links merges). Review patches were produced from the worktrees for traceability during reconciliation but are not required in the final tree. All Phase 3 landed changes (CI yaml + minimal verify job, tests/conftest.py, pyproject comments, README/AGENTS updates, release-checklist, plan status) are in main.
 
 All phases of the Windows & Cross-Platform plan now complete. No remaining todos from the plan.
 
+
+
+**Post v0.4.0 docs polish (2026-06-08, docs integration coordinator)**: Added organized navigation links/pointers + hierarchical TOC to the new docs/user-guide/ (index + cross-refs from README, spec, contracts, AGENTS, release-checklist) per user request for discoverability. Two subagents (019ea93a-9afc, 019ea93a-9b08) + coordinator reconcile/merge/push (merge commits e.g. 63b3e72, 308ca48). Coordination patches (land-nav-*.patch) were used for review and cleaned afterward to keep the main branch tidy. See docs/user-guide/README.md (Table of Contents section) and the committed changes.
