@@ -75,12 +75,26 @@ def _build_parser() -> argparse.ArgumentParser:
     scan.add_argument(
         "--format",
         choices=["table", "json", "html"],
-        help="Output format. 'table' renders a rich colored TUI (default). 'json' for CI/agents. 'html' for a self-contained nice browser report.",
+        help="Output format. 'table' (default) = rich colored TUI with summary panels + table. "
+             "Long tables are truncated by default (see --limit / --full). "
+             "'json' for CI/agents. 'html' for a self-contained interactive browser report.",
     )
     scan.add_argument(
         "--threshold",
         type=float,
         help=f"CRAP threshold. Defaults to the config value or {DEFAULT_THRESHOLD}.",
+    )
+    scan.add_argument(
+        "--limit",
+        type=int,
+        default=100,
+        help="Maximum number of functions to display in the rich terminal table (default: 100). "
+             "Prevents very long output on large codebases. Use --full to show everything.",
+    )
+    scan.add_argument(
+        "--full",
+        action="store_true",
+        help="Show the full table with all functions (overrides --limit). Useful when you want to capture everything.",
     )
     scan.add_argument(
         "--config",
@@ -281,7 +295,9 @@ def _scan(args: argparse.Namespace) -> int:
         print(format_report_html(report))
     else:
         # The nice rich TUI experience (colored table, panels, risk highlighting, etc.)
-        render_rich_report(report)
+        # Pass display limit so the table doesn't become unusably long on big repos.
+        display_limit = None if args.full else args.limit
+        render_rich_report(report, limit=display_limit)
 
     for warning in warnings:
         print(f"warning: {warning}", file=sys.stderr)

@@ -194,15 +194,20 @@ def _fmt_crap(val: float | None) -> str:
     return "N/A" if val is None else f"{val:.2f}"
 
 
-def render_rich_report(report: ScanReport) -> None:
+def render_rich_report(report: ScanReport, *, limit: int | None = 100) -> None:
     """Render a beautiful, colored, scannable report directly to the terminal using rich.
 
     This is what users see for the default ``--format table`` (or when format is
     omitted). It gives a real "TUI feel": header panels, risk-colored cells,
     clear visual hierarchy, and the top recommendations surfaced prominently.
 
-    Falls back to a plain-text version if rich cannot be imported (shouldn't
-    happen after the declared dependency, but defensive).
+    The `limit` parameter (default 100) prevents the table from becoming
+    unusably long on real codebases with hundreds or thousands of functions.
+    The summary panels are always shown first (so you see the important
+    overview), followed by the top-N rows + a clear truncation note.
+
+    Pass limit=None (or use --full from the CLI) to show every function.
+    Falls back to a plain-text version if rich cannot be imported.
     """
     if not _HAS_RICH or Console is None:
         # Fallback: use the existing plain ASCII table so we never explode.
@@ -254,9 +259,23 @@ def render_rich_report(report: ScanReport) -> None:
     console.print(stats_panel)
     console.print()
 
-    # --- Main data table ---
+    # --- Main data table (with smart truncation for long outputs) ---
+    all_functions = report.functions
+    total = len(all_functions)
+
+    if limit is not None and total > limit:
+        displayed = all_functions[:limit]
+        is_truncated = True
+    else:
+        displayed = all_functions
+        is_truncated = False
+
+    table_title = f"Functions (sorted by CRAP desc) — showing {len(displayed)} of {total}"
+    if is_truncated:
+        table_title += " (truncated)"
+
     table = Table(
-        title="Functions (sorted by CRAP desc, then complexity)",
+        title=table_title,
         box=box.ROUNDED,
         show_header=True,
         header_style="bold cyan",
@@ -274,7 +293,7 @@ def render_rich_report(report: ScanReport) -> None:
     table.add_column("CRAP", justify="right")
     table.add_column("risk", justify="center")
 
-    for row in report.functions:
+    for row in displayed:
         risk_style = _risk_style(row.risk_level)
         crap_str = _fmt_crap(row.crap_score)
         # Give high-CRAP numbers a stronger visual pop
@@ -297,6 +316,13 @@ def render_rich_report(report: ScanReport) -> None:
         )
 
     console.print(table)
+
+    if is_truncated:
+        console.print(
+            f"[dim]... {total - limit} more functions not shown. "
+            f"Re-run with --full or --limit {total} (or higher) to see everything.[/dim]"
+        )
+
     console.print()
 
     # --- Top recommendations (actionable, from the pre-computed list) ---
