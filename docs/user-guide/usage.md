@@ -62,10 +62,23 @@ Positional `paths...`:
 - Example: `--base-ref origin/main`.
 - Passed through to the git diff logic.
 
-`--format {table,json}`:
+`--format {table,json,html}`:
 
-- `table` (default): human-readable, risk-sorted, fixed-width columns + summary header line.
+- `table` (default): the rich terminal TUI experience — colored risk levels, styled CRAP/coverage columns, summary panels, priority recommendations, and warnings rendered beautifully with the `rich` library. Looks great in any modern terminal (including Windows Terminal, iTerm, VS Code). Falls back gracefully to plain text if rich is unavailable.
 - `json`: stable, indented, sort_keys=True payload suitable for agents, jq, or CI assertions. Top-level keys: `summary`, `functions`, `recommendations`, `run_metadata`, `warnings`.
+- `html`: emits a single self-contained HTML file (Tailwind via CDN + vanilla JS). Perfect for sharing, archiving, or opening in a browser. Features:
+  - Summary cards + risk breakdown visualization
+  - Interactive table (click headers to sort, risk filter buttons, live search)
+  - Coverage progress bars + color-scaled CRAP values
+  - Priority recommendations section
+  - "Download JSON" and "Print/Save PDF" buttons
+  - Full report data embedded so the HTML is a complete artifact
+
+  Typical usage:
+  ```bash
+  crap4code scan --format html > crap4code-report.html
+  # then open crap4code-report.html in your browser
+  ```
 
 `--threshold <float>`:
 

@@ -65,6 +65,7 @@ Scan with machine-readable JSON (for agents / CI):
 
 ```bash
 crap4code scan --format json
+crap4code scan --format html > report.html   # beautiful shareable browser report
 ```
 
 Read an existing report without re-running any coverage commands (very useful on Windows while tuning):

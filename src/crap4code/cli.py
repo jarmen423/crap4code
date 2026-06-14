@@ -18,7 +18,13 @@ from crap4code.core.crap_score import calculate_crap
 from crap4code.core.files import discover_source_files
 from crap4code.core.models import FunctionMetrics
 from crap4code.core.recommendations import enrich_rows
-from crap4code.core.report import build_report, format_report, format_report_json
+from crap4code.core.report import (
+    build_report,
+    format_report,
+    format_report_html,
+    format_report_json,
+    render_rich_report,
+)
 from crap4code.core.thresholds import DEFAULT_THRESHOLD, is_threshold_exceeded
 from crap4code.languages import get_language_registry
 
@@ -68,8 +74,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     scan.add_argument(
         "--format",
-        choices=["table", "json"],
-        help="Output format. Defaults to the config value or table.",
+        choices=["table", "json", "html"],
+        help="Output format. 'table' renders a rich colored TUI (default). 'json' for CI/agents. 'html' for a self-contained nice browser report.",
     )
     scan.add_argument(
         "--threshold",
@@ -270,8 +276,12 @@ def _scan(args: argparse.Namespace) -> int:
 
     if output_format == "json":
         print(format_report_json(report))
+    elif output_format == "html":
+        # Self-contained HTML report. User typically redirects: crap4code scan --format html > report.html
+        print(format_report_html(report))
     else:
-        print(format_report(report))
+        # The nice rich TUI experience (colored table, panels, risk highlighting, etc.)
+        render_rich_report(report)
 
     for warning in warnings:
         print(f"warning: {warning}", file=sys.stderr)
